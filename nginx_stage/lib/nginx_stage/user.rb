@@ -26,28 +26,40 @@ module NginxStage
     #   @return [String] the shell
     delegate [:name, :uid, :gid, :gecos, :dir, :shell] => :@passwd
 
-    # List of all groups that user belongs to
-    # @return [Array<String>] list of groups user is in
-    attr_reader :groups
-
     # @param user [String] the user name defining this object
     # @raise [ArgumentError] if user or primary group doesn't exist on local system
     def initialize(user)
-      @passwd = Etc.getpwnam user.to_s
-      @group = Etc.getgrgid gid
-      @groups = get_groups
-
-      if name.to_s != user.to_s
-        err_msg = <<~HEREDOC
-          Username '#{user}' is being mapped to '#{name}' in SSSD and they don't match.
-          Users with domain names cannot be mapped correctly. If '#{name}' still has the
-          domain in it you'll need to set SSSD's full_name_format to '%1$s'.
-
-          See https://github.com/OSC/ondemand/issues/1759 for more details.
-        HEREDOC
-
-        raise StandardError, err_msg
+      # See if user is all numbers (potentially uid), regexp is 8% faster than integer conversion
+      # Benchmark: 0.13 microseconds per call (1M cycles)
+      if user.match?(/\A\d+\z/)
+        # The user is composed of all numbers, (numeric string)
+        #  10 microseconds per call if it matches
+        # 203 microseconds per call if it doesn't match (only happens if username is all numbers but not a uid)
+        begin
+          @passwd = Etc.getpwuid(user.to_i)
+        rescue ArgumentError
+          # We got a number as a username but we failed the lookup, fallthrough to the string lookup
+        end
       end
+
+      # Variable is not set, so the user is a string
+      unless @passwd
+        # Benchmark: 13 microseconds per call (1M cycles)
+        @passwd = Etc.getpwnam(user)
+        if name.to_s != user.to_s
+          err_msg = <<~HEREDOC
+            Username '#{user}' is being mapped to '#{name}' in SSSD and they don't match.
+            Users with domain names cannot be mapped correctly. If '#{name}' still has the
+            domain in it you'll need to set SSSD's full_name_format to '%1$s'.
+  
+            See https://github.com/OSC/ondemand/issues/1759 for more details.
+          HEREDOC
+
+          raise StandardError, err_msg
+        end
+      end
+
+      @group = Etc.getgrgid(gid)
     end
 
     # User's primary group name
@@ -74,12 +86,5 @@ module NginxStage
     def to_str
       @passwd.name
     end
-
-    private
-      # Use `id` to get list of groups as the /etc/group file can give
-      # erroneous results
-      def get_groups
-        `id -nG #{name}`.split(' ')
-      end
   end
 end

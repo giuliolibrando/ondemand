@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+require 'zip'
 
 # Project classes represent projects users create to run HPC jobs.
 class Project
@@ -9,6 +10,19 @@ class Project
   extend JobLogger
 
   class << self
+    def from_directory(dir)
+      # fetch "id" by opening .ondemand/manifest.yml
+      manifest_path = Pathname("#{dir.to_s}/.ondemand/manifest.yml")
+      contents = File.read(manifest_path)
+      raw_opts = YAML.safe_load(contents)
+      id = raw_opts["id"]
+      Project.new({ id: id, directory: dir })
+    rescue StandardError => e
+      p = Project.new({ id: nil, directory: dir })
+      p.errors.add(:create, "Cannot import project from #{dir} due to error #{e}")
+      p
+    end
+  
     def lookup_file
       Pathname("#{dataroot}/.project_lookup").tap do |path|
         FileUtils.touch(path.to_s) unless path.exist?
@@ -21,6 +35,12 @@ class Project
     rescue StandardError, Exception => e
       Rails.logger.warn("cannot read #{dataroot}/.project_lookup due to error #{e}")
       {}
+    end
+
+    def import_to_lookup(imported_project)
+      return false if imported_project.nil? || !imported_project.valid?
+
+      Project.find(imported_project.id) ? true : imported_project.add_to_lookup(:import)
     end
 
     def next_id
@@ -66,9 +86,32 @@ class Project
         Project.new(**opts)
       end
     end
+
+    # TODO: Use it to populate similar page as /projects where we will keep the imported projects
+    def possible_imports
+      Rails.cache.fetch('possible_imports', expires_in: 1.hour) do
+        importable_directories
+      end
+    end
+
+    private
+
+    def importable_directories
+      Configuration.shared_projects_root.map do |root|
+        next unless File.exist?(root) && File.directory?(root) && File.readable?(root)
+
+        Dir.each_child(root).map do |child|
+          child_dir = "#{root}/#{child}"
+          next unless File.directory?(child_dir) && File.readable?(child_dir)
+          Dir.each_child(child_dir).map do |possible_project|
+            Project.from_directory("#{child_dir}/#{possible_project}")
+          end
+        end.flatten
+      end.flatten.compact.reject{ |p| p.errors.any? }
+    end
   end
 
-  attr_reader :id, :name, :description, :icon, :directory, :template
+  attr_reader :id, :name, :description, :icon, :directory, :template, :files
 
   validates :name, presence: { message: :required }, on: [:create, :update]
   validates :id, :directory, :icon, presence: { message: :required }, on: [:update]
@@ -117,7 +160,7 @@ class Project
     @directory = Project.dataroot.join(id.to_s).to_s if directory.blank?
     @icon = 'fas://cog' if icon.blank?
 
-    make_dir && sync_template && store_manifest(:save)
+    make_dir && update_permission && sync_template && store_manifest(:save)
   end
 
   def update(attributes)
@@ -147,7 +190,7 @@ class Project
     File.write(Project.lookup_file, new_table.to_yaml)
     true
   rescue StandardError => e
-    errors.add(operation, "Cannot update lookup file lookup file with error #{e.class}:#{e.message}")
+    errors.add(operation, "Cannot update lookup file with error #{e.class}:#{e.message}")
     false
   end
 
@@ -156,7 +199,7 @@ class Project
     File.write(Project.lookup_file, new_table.to_yaml)
     true
   rescue StandardError => e
-    errors.add(:update, "Cannot update lookup file lookup file with error #{e.class}:#{e.message}")
+    errors.add(:update, "Cannot update lookup file with error #{e.class}:#{e.message}")
     false
   end
 
@@ -219,6 +262,13 @@ class Project
     job
   end
 
+  def remove_logged_job(job_id, cluster)
+    old_job = jobs.detect { |j| j.id == job_id && j.cluster == cluster }
+    Project.delete_job!(directory, old_job)
+
+    jobs.none? { |j| j.id == job_id && j.cluster == cluster }
+  end
+
   def adapter(cluster_id)
     cluster = OodAppkit.clusters[cluster_id] || raise(StandardError, "Job specifies nonexistent '#{cluster_id}' cluster id.")
     cluster.job_adapter
@@ -229,10 +279,22 @@ class Project
     File.readable?(file) ? file : nil
   end
 
+  def zip_to_template
+    zip_file = "#{project_dataroot}/project.zip"
+    FileUtils.rm(zip_file) if File.exist?(zip_file)
+    Zip::File.open(zip_file, Zip::File::CREATE) do |zipfile|
+      files.each do |file_name|
+        file_path = "#{project_dataroot}/#{file_name}"
+        zipfile.add(file_name, file_path) if File.exist?(file_path)
+      end
+    end
+    zip_file
+  end
+
   private
-  
+
   def update_attrs(attributes)
-    [:name, :description, :icon].each do |attribute|
+    [:name, :description, :icon, :files].each do |attribute|
       instance_variable_set("@#{attribute}".to_sym, attributes.fetch(attribute, ''))
     end
   end
@@ -246,6 +308,14 @@ class Project
     false
   end
 
+  def update_permission
+    project_dataroot.chmod(0750)
+    true
+  rescue StandardError => e
+    errors.add(:save, "Failed to update permissions of the directory: #{e.message}")
+    false
+  end
+
   def sync_template
     return true if template.blank?
 
@@ -253,7 +323,7 @@ class Project
     oe, s = Open3.capture2e(*rsync_args)
     raise oe unless s.success?
 
-    save_new_scripts
+    save_new_launchers
   rescue StandardError => e
     errors.add(:save, "Failed to sync template: #{e.message}")
     false
@@ -262,13 +332,13 @@ class Project
   # When copying a project from a template, we need new Launcher objects
   # that point to the _new_ project directory, not the template's directory.
   # This creates them _and_ serializes them to yml in the new directory.
-  def save_new_scripts
-    dir = Launcher.scripts_dir(template)
-    Dir.glob("#{dir}/*/form.yml").map do |script_yml|
-      Launcher.from_yaml(script_yml, project_dataroot)
-    end.map do |script|
-      saved_successfully = script.save
-      errors.add(:save, script.errors.full_messages) unless saved_successfully
+  def save_new_launchers
+    dir = Launcher.launchers_dir(template)
+    Dir.glob("#{dir}/*/form.yml").map do |launcher_yml|
+      Launcher.from_yaml(launcher_yml, project_dataroot)
+    end.map do |launcher|
+      saved_successfully = launcher.save
+      errors.add(:save, launcher.errors.full_messages) unless saved_successfully
 
       saved_successfully
     end.all? do |saved_successfully|
@@ -278,7 +348,9 @@ class Project
 
   def rsync_args
     [
-      'rsync', '-rltp', '--exclude', 'scripts/*',
+      'rsync', '-rltp',
+      '--exclude', 'launchers/*',
+      '--exclude', '.ondemand/job_log.yml',
       "#{template}/", project_dataroot.to_s
     ]
   end
@@ -297,8 +369,10 @@ class Project
 
   def project_template_invalid
     # This validation is to prevent the template directory being manipulated in the form.
-    if !template.blank? && Project.templates.map { |template| template.directory.to_s }.exclude?(template.to_s)
-      errors.add(:template, :invalid)
-    end
+    return if template.blank?
+
+    template_path = Pathname.new(template)
+    errors.add(:template, :invalid) if Project.templates.map { |t| t.directory.to_s }.exclude?(template.to_s)
+    errors.add(:template, :invalid) unless template_path.exist? && template_path.readable?
   end
 end

@@ -194,7 +194,8 @@ module RakeHelper
     @image_names ||=
       {
         ood: 'ood',
-        dev: 'ood-dev'
+        dev: 'ood-dev',
+        demo: 'ood-demo',
       }.freeze
   end
 
@@ -204,6 +205,7 @@ module RakeHelper
 
   def buildah_build_cmd(docker_file, image_name, image_tag: ood_image_tag, extra_args: [])
     args = ['bud', '--build-arg', "VERSION=#{ood_version}"]
+    args.concat(['--layers'])
     args.concat ['-t', "#{image_name}:#{image_tag}", '-f', docker_file]
     args.concat extra_args
 
@@ -260,12 +262,6 @@ module RakeHelper
                     end
   end
 
-  def scl_apache?
-    return true if el? && os_release['VERSION_ID'] =~ /^7/
-
-    false
-  end
-
   def el?
     return true if "#{os_release['ID']} #{os_release['ID_LIKE']}" =~ /(rhel|fedora)/
 
@@ -279,8 +275,6 @@ module RakeHelper
   end
 
   def apache_daemon
-    return '/opt/rh/httpd24/root/usr/sbin/httpd-scl-wrapper' if scl_apache?
-
     "/usr/sbin/#{apache_service}"
   end
 
@@ -298,7 +292,6 @@ module RakeHelper
 
   def apache_service
     return 'apache2' if debian?
-    return 'httpd24-httpd' if scl_apache?
 
     'httpd'
   end

@@ -188,7 +188,23 @@ module NginxStage
     rescue ArgumentError => e
       log = Syslog::Logger.new 'ood_nginx_stage'
       log.error "cannot create user #{v} because of error '#{e.message}'"
-    end
+      nil
+    end.compact
+  end
+
+  # List of inactive users.
+  # @return [Array<String>] the list of inactive users.
+  def self.inactive_users
+    Dir[pun_pid_path(user: '*')].map do |v|
+      name = v[/#{pun_pid_path(user: '(.+)')}/, 1]
+      User.new(name)
+
+      # return nil here becasue we actually _want_ to rescue.
+      # i.e., a User is inactive if it _can't_ be instanitated.
+      nil
+    rescue ArgumentError => e
+      name
+    end.compact
   end
 
   # Get a hash of all the staged app configs

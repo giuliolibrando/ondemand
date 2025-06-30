@@ -5,24 +5,33 @@
   this shim until we enable it.
 */
 
+import { setInnerHTML } from './utils';
+import { OODAlert } from './alert';
+
 export function replaceHTML(id, html) {
   const ele = document.getElementById(id);
 
-  if(ele == null){
-    return;
-  } else {
-    var tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    const newHTML = tmp.querySelector('template').innerHTML;
-    tmp.remove();
+  if(ele == null) return;
 
-    ele.innerHTML = newHTML;
-  }
+  var tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  const newHTML = tmp.querySelector('template').innerHTML;
+  tmp.remove();
+
+  setInnerHTML(ele, newHTML);
 }
 
 export function pollAndReplace(url, delay, id, callback) {
   fetch(url, { headers: { Accept: "text/vnd.turbo-stream.html" } })
-    .then(response => response.ok ? Promise.resolve(response) : Promise.reject(response.text()))
+    .then((response) => {
+      if(response.status == 200) {
+        return Promise.resolve(response);
+      } else if(response.status == 401) {
+        return Promise.reject("This page cannot update because you are no longer authenticated. Please refresh the page to log back in.")
+      } else {
+        return Promise.reject(response.text());
+      }
+    })
     .then((r) => r.text())
     .then((html) => replaceHTML(id, html))
     .then(() => {
@@ -32,7 +41,11 @@ export function pollAndReplace(url, delay, id, callback) {
       }
     })
     .catch((err) => {
-      console.log('Cannot retrieve partial due to error:');
+      if (typeof err == 'string') {
+        OODAlert(err);
+      } else {
+        OODAlert('This page has encountered an unexpected error. Please refresh the page.');
+      }
       console.log(err);
     });
 }

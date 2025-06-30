@@ -1,3 +1,35 @@
+
+--[[
+  actual_username
+
+  What we get from the user mapping script can be an actual
+  alphanumeric username, UID, or numeric username.
+  This helper distinguishes between numeric values that are usernames
+  and numeric values that are infact UIDs.
+--]]
+function actual_username(username)
+
+  local num = tonumber(username)
+  if num then
+    local pwd = require "posix.pwd"
+    local data = pwd.getpwnam(num)
+
+    -- it's a numeric username.
+    if data then
+      return data.pw_name
+
+    -- not a numeric username, so must be a UID.
+    else
+      data = pwd.getpwuid(num)
+      return data.pw_name
+    end
+
+  -- it's not numeric, so just return the string.
+  else
+    return username
+  end
+end
+
 --[[
   map
 
@@ -17,6 +49,8 @@ function map(r, user_map_match, user_map_cmd, remote_user)
     handle:close()
   end
 
+  sys_user = actual_username(sys_user)
+
   time_user_map = (r:clock() - now)/1000.0
   r:debug("Mapped '" .. remote_user .. "' => '" .. (sys_user or "") .. "' [" .. time_user_map .. " ms]")
 
@@ -24,6 +58,7 @@ function map(r, user_map_match, user_map_cmd, remote_user)
   if not sys_user or sys_user == "" then
     return nil
   end
+
 
   r.subprocess_env['MAPPED_USER'] = sys_user -- set as CGI variable for later hooks (i.e., analytics)
   r.subprocess_env['OOD_TIME_USER_MAP'] = time_user_map -- set as CGI variable for later hooks (i.e., analytics)

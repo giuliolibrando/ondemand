@@ -91,7 +91,7 @@ module BatchConnect::SessionsHelper
     return unless batch_connect_app.valid?
 
     user_context = session.user_context
-    params = batch_connect_app.attributes.map{|attribute| ["batch_connect_session_context[#{attribute.id}]", user_context.fetch(attribute.id, '')]}.to_h
+    params = batch_connect_app.attributes.map{|attribute| ["batch_connect_session_context[#{attribute.id}]", user_context.fetch(attribute.id, nil)]}.to_h.compact
     title = "#{t('dashboard.batch_connect_sessions_relaunch_title')} #{session.title} #{t('dashboard.batch_connect_sessions_word')}"
     button_to(
       batch_connect_session_contexts_path(token: batch_connect_app.token),
@@ -103,7 +103,7 @@ module BatchConnect::SessionsHelper
       data: { toggle: "tooltip", placement: "left" },
       params: params
     ) do
-      "#{fa_icon('sync', classes: nil, title: '')}".html_safe
+      "#{fa_icon('sync', classes: nil, title: nil)}".html_safe
     end
   end
 
@@ -119,7 +119,7 @@ module BatchConnect::SessionsHelper
       data: { toggle: "tooltip", placement: "left" },
       params: {session_id: session.id}
     ) do
-      "#{fa_icon('pen', classes: nil, title: '')}".html_safe
+      "#{fa_icon('pen', classes: nil, title: nil)}".html_safe
     end
   end
 
@@ -187,7 +187,7 @@ module BatchConnect::SessionsHelper
           content_tag(:ul, class: "nav nav-tabs") do
             tabs.map { |t| t[:title] }.map.with_index do |title, idx|
               content_tag(:li, class: "nav-item #{"active" if idx.zero?}") do
-                link_to title, "#c_#{id}_#{idx}", data: { toggle: "tab" }, aria: { selected: (true if idx.zero?) }, class: "nav-link #{"active" if idx.zero?}"
+                link_to title, "#c_#{id}_#{idx}", data: { 'bs-toggle': "tab" }, aria: { selected: (true if idx.zero?) }, class: "nav-link #{"active" if idx.zero?}"
               end
             end.join("\n").html_safe
           end

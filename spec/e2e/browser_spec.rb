@@ -27,8 +27,8 @@ describe 'OnDemand browser test' do
   end
 
   it 'uses /dex in OIDC issuer' do
-    on hosts, 'curl http://localhost:8080/dex/.well-known/openid-configuration' do
-      data = JSON.parse(stdout)
+    on hosts, 'curl http://localhost:8080/dex/.well-known/openid-configuration' do |result|
+      data = JSON.parse(result.stdout)
       expect(data['issuer']).to eq('http://localhost:8080/dex')
     end
   end
@@ -64,6 +64,7 @@ describe 'OnDemand browser test' do
   it 'redirects /pun/sys/files#index' do
     browser.goto "#{ctr_base_url}/pun/sys/files"
     expect(browser.url).to eq("#{ctr_base_url}/pun/sys/dashboard/files/fs/home/ood")
+    sleep 5
     expect(browser.title).to eq('Dashboard - Open OnDemand')
     expect(browser.table(id: 'directory-contents').present?).to be true
   end

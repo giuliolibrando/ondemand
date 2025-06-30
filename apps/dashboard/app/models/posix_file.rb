@@ -5,6 +5,7 @@ class PosixFile
 
   delegate :basename, :descend, :parent, :join, :to_s, :read, :write, :mkdir, to: :path
   delegate :directory?, :realpath, :readable?, :file?, to: :path
+  delegate :size, to: :stat
 
   # include to give us number_to_human_size
   include ActionView::Helpers::NumberHelper
@@ -67,7 +68,7 @@ class PosixFile
   end
 
   def downloadable?
-    (directory? || file?) && readable?
+    Configuration.download_enabled? && (directory? || file?) && readable?
   end
 
   def human_size
@@ -151,7 +152,14 @@ class PosixFile
     FileUtils.mv tempfile, path.to_s
     File.chmod(mode, path.to_s)
 
-    path.chown(nil, path.parent.stat.gid) if path.parent.setgid?
+    begin
+      gid = path.parent.stat.gid
+      path.chown(nil, gid) if path.parent.setgid?
+    rescue StandardError => e
+      Rails.logger.info("Cannot change group ownership of #{path} to #{gid} because of error: #{e}")
+    end
+
+    nil
   end
 
   def can_download_as_zip?(timeout: Configuration.file_download_dir_timeout, download_directory_size_limit: Configuration.file_download_dir_max)
@@ -168,7 +176,7 @@ class PosixFile
       if s.exitstatus == 124
         error = I18n.t('dashboard.files_directory_size_calculation_timeout')
       elsif ! s.success?
-        error = I18n.t('dashboard.files_directory_size_unknown', exit_code: s, error: e)
+        error = I18n.t('dashboard.files_directory_size_unknown', exit_code: s.exitstatus, error: e)
       else
         # Example output from: du -cbs $path
         #
@@ -185,8 +193,6 @@ class PosixFile
           error = I18n.t('dashboard.files_directory_size_calculation_error')
         elsif size.to_i > download_directory_size_limit
           error = I18n.t('dashboard.files_directory_too_large', download_directory_size_limit: download_directory_size_limit)
-        elsif size.to_i == 0
-          error = I18n.t('dashboard.files_directory_download_size_0', cmd: "timeout 10s du -cbs #{path.to_s}")
         else
           can_download = true
         end

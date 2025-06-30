@@ -256,6 +256,18 @@ class ConfigurationSingletonTest < ActiveSupport::TestCase
     end
   end
 
+  test "default value for user_settings_file" do
+    with_modified_env(OOD_PORTAL: nil) do
+      assert_equal Pathname.new('~/.config/ondemand/settings.yml').expand_path.to_s, ConfigurationSingleton.new.user_settings_file
+    end
+  end
+
+  test "user_settings_file uses OOD_PORTAL" do
+    with_modified_env(OOD_PORTAL: 'my_portal') do
+      assert_equal Pathname.new('~/.config/my_portal/settings.yml').expand_path.to_s, ConfigurationSingleton.new.user_settings_file
+    end
+  end
+
   test "quota_paths correctly parses OOD_QUOTA_PATH" do
     with_modified_env(OOD_QUOTA_PATH: '/path_a/quota.json:/path_b/quota.json') do
       assert_equal ['/path_a/quota.json', '/path_b/quota.json'], ConfigurationSingleton.new.quota_paths
@@ -336,8 +348,8 @@ class ConfigurationSingletonTest < ActiveSupport::TestCase
     with_modified_env(config_fixtures) do
       bad_erb_rex = /bad_erb.yml.erb because of error undefined local variable or method `wont_find_this_functon/
       bad_yml_rex = /not_good_yml.yml because of error \(<unknown>\): did not find expected '-' indicator while parsing a block collection at line 2 column 3/
-      Rails.logger.expects(:error).with(regexp_matches(bad_erb_rex)).at_least_once
-      Rails.logger.expects(:error).with(regexp_matches(bad_yml_rex)).at_least_once
+      $stderr.expects(:puts).with(regexp_matches(bad_erb_rex)).at_least_once
+      $stderr.expects(:puts).with(regexp_matches(bad_yml_rex)).at_least_once
       ConfigurationSingleton.new.send(:config)
     end
   end
@@ -510,7 +522,7 @@ class ConfigurationSingletonTest < ActiveSupport::TestCase
   test 'bc_sessions_poll_delay reads from config' do
     Dir.mktmpdir do |dir|
       with_modified_env({ OOD_CONFIG_D_DIRECTORY: dir.to_s }) do
-        sessions_config = { 'sessions_poll_delay' => '99999' }
+        sessions_config = { 'bc_sessions_poll_delay' => '99999' }
         File.open("#{dir}/sessions_config.yml", 'w+') { |f| f.write(sessions_config.to_yaml) }
 
         assert_equal(99_999, ConfigurationSingleton.new.bc_sessions_poll_delay)
@@ -521,6 +533,34 @@ class ConfigurationSingletonTest < ActiveSupport::TestCase
   test "bc_sessions_poll_delay minimum value is 10_000" do
     with_modified_env('POLL_DELAY': '100') do
       assert_equal(10_000, ConfigurationSingleton.new.bc_sessions_poll_delay)
+    end
+  end
+
+  test "bc_sessions_poll_delay respnods to new environment variable" do
+    with_modified_env('OOD_BC_SESSIONS_POLL_DELAY': '30000') do
+      assert_equal(30_000, ConfigurationSingleton.new.bc_sessions_poll_delay)
+    end
+  end
+
+  test "bc_sessions_poll_delay's new variable has precedence over the old" do
+    with_modified_env('OOD_BC_SESSIONS_POLL_DELAY': '30000', POLL_DELAY: '40000') do
+      assert_equal(30_000, ConfigurationSingleton.new.bc_sessions_poll_delay)
+    end
+  end
+
+  test "rails_env_production? should return true if production environment" do
+    with_modified_env(RAILS_ENV: 'production') do
+      assert ConfigurationSingleton.new.rails_env_production?
+    end
+  end
+
+  test "rails_env_production? should return false if development or test environment" do
+    with_modified_env(RAILS_ENV: 'development') do
+      refute ConfigurationSingleton.new.rails_env_production?
+    end
+
+    with_modified_env(RAILS_ENV: 'test') do
+      refute ConfigurationSingleton.new.rails_env_production?
     end
   end
 end

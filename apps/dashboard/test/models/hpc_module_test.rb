@@ -3,7 +3,6 @@
 require 'test_helper'
 
 class HpcModuleTest < ActiveSupport::TestCase
-
   # owens.json and oakley.json in this directory are from real clusters
   # (oakley is actually pitzer) from the time this was written.
   def fixture_dir
@@ -12,7 +11,7 @@ class HpcModuleTest < ActiveSupport::TestCase
 
   test 'all safely reads from inaccessabile directories' do
     with_modified_env({ OOD_MODULE_FILE_DIR: '/dev/null' }) do
-      assert_equal [], HpcModule.all('owens')
+      assert_equal [], HpcModule.all(cluster: 'owens')
     end
   end
 
@@ -20,7 +19,7 @@ class HpcModuleTest < ActiveSupport::TestCase
     Dir.mktmpdir do |dir|
       with_modified_env({ OOD_MODULE_FILE_DIR: dir }) do
         `echo '{this is bad json}' > #{dir}/owens.json`
-        assert_equal [], HpcModule.all('owens')
+        assert_equal [], HpcModule.all(cluster: 'owens')
       end
     end
   end

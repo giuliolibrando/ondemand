@@ -17,6 +17,8 @@ describe 'Nginx stage' do
       on hosts, 'mkdir /var/run/ondemand-nginx/deleted_user'
       on hosts, 'chmod 600 /var/run/ondemand-nginx/deleted_user'
       on hosts, 'echo -n 11111111 > /var/run/ondemand-nginx/deleted_user/passenger.pid'
+      on hosts, 'echo -n 11111111 > /var/lib/ondemand-nginx/config/puns/deleted_user.conf'
+      on hosts, 'echo -n 11111111 > /var/lib/ondemand-nginx/config/puns/deleted_user.secret_key_base.txt'
     end
 
     after(:all) do
@@ -30,8 +32,11 @@ describe 'Nginx stage' do
       expect(browser.title).to eq('Dashboard - Open OnDemand')
 
       # Note there's no error here about 'deleted_user'
-      on hosts, '/opt/ood/nginx_stage/sbin/nginx_stage nginx_clean --force' do
-        assert_equal stdout, "ood\n"
+      on hosts, '/opt/ood/nginx_stage/sbin/nginx_stage nginx_clean --force' do |result|
+        assert_equal result.stdout, "ood\ndeleted_user (disabled)\n"
+        refute(File.exist?('/var/run/ondemand-nginx/deleted_user'))
+        refute(File.exist?('/var/lib/ondemand-nginx/config/puns/deleted_user.conf'))
+        refute(File.exist?('/var/lib/ondemand-nginx/config/puns/deleted_user.secret_key_base.txt'))
       end
     end
   end

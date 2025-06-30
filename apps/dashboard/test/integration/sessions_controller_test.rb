@@ -35,11 +35,36 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_select 'div.card div.list-group a.list-group-item', 2
     assert_select 'div.card div.list-group a.list-group-item' do |links|
       # Items are sorted by title
-      assert_equal 'Jupyter Notebook', links[0]['data-title']
+      assert_equal 'Jupyter Notebook', links[0]['title']
       assert_equal '/batch_connect/sys/bc_jupyter/session_contexts/new', links[0]['href']
 
-      assert_equal 'Paraview', links[1]['data-title']
+      assert_equal 'Paraview', links[1]['title']
       assert_equal '/batch_connect/sys/bc_paraview/session_contexts/new', links[1]['href']
+    end
+  end
+
+  test 'shared apps left menu should render when nav_bar property defined' do
+    stub_usr_router
+    BatchConnect::SessionsController.any_instance.stubs(:t).with('dashboard.batch_connect_apps_menu_title').returns('Interactive apps title')
+    BatchConnect::SessionsController.any_instance.stubs(:t).with('dashboard.shared_apps_title').returns('Shared apps title')
+    stub_user_configuration(
+      {
+        nav_bar: [
+          { title: 'Test Apps',
+            links: [
+              { apps: 'sys/bc_paraview' }
+            ] }
+        ]
+      }
+    )
+
+    get batch_connect_sessions_path
+    assert_response :success
+
+    assert_select 'nav.col-md-3 div.card div.card-header' do |menu_headers|
+      assert_equal 2, menu_headers.size
+      assert_equal 'Shared apps title', menu_headers[0].text
+      assert_equal 'Interactive apps title', menu_headers[1].text
     end
   end
 
@@ -65,10 +90,10 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_select 'div.card div.list-group a.list-group-item', 2
     assert_select 'div.card div.list-group a.list-group-item' do |links|
       # Configuration order must be kept
-      assert_equal 'Jupyter Notebook', links[0]['data-title']
+      assert_equal 'Jupyter Notebook', links[0]['title']
       assert_equal '/batch_connect/sys/bc_jupyter/session_contexts/new', links[0]['href']
 
-      assert_equal 'Paraview', links[1]['data-title']
+      assert_equal 'Paraview', links[1]['title']
       assert_equal '/batch_connect/sys/bc_paraview/session_contexts/new', links[1]['href']
     end
   end

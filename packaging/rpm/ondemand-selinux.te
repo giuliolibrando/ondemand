@@ -6,6 +6,7 @@ require {
   type shell_exec_t;
   type rsync_exec_t;
   type ptmx_t;
+  type user_home_t;
   type user_home_dir_t;
   type proc_t;
   type vmblock_t;
@@ -19,6 +20,7 @@ require {
   type admin_home_t;
   type usr_t;
   type initrc_var_run_t;
+  type unconfined_service_t;
   class dbus send_msg;
   class passwd rootok;
   class passwd passwd;
@@ -105,6 +107,8 @@ read_lnk_files_pattern(httpd_t, ood_apps_public_t, ood_apps_public_t)
 gen_tunable(ondemand_manage_user_home_dir, false)
 
 tunable_policy(`ondemand_manage_user_home_dir',`
+  manage_dirs_pattern(ood_pun_t, user_home_t, user_home_t)
+  manage_files_pattern(ood_pun_t, user_home_t, user_home_t)
   manage_dirs_pattern(ood_pun_t, user_home_dir_t, user_home_dir_t)
   manage_files_pattern(ood_pun_t, user_home_dir_t, user_home_dir_t)
 ')
@@ -212,6 +216,7 @@ tunable_policy(`ondemand_use_slurm',`
   allow ood_pun_t var_run_t:sock_file { getattr write };
   # SLURM commands like squeue
   allow ood_pun_t self:netlink_route_socket { create_netlink_socket_perms };
+  allow ood_pun_t unconfined_service_t:unix_stream_socket { connectto };
 ')
 
 ## <desc>

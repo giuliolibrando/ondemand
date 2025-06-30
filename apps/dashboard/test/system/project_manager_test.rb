@@ -10,6 +10,7 @@ class ProjectManagerTest < ApplicationSystemTestCase
     stub_sacctmgr
     stub_scontrol
     stub_du
+    stub_sinfo
 
     # Stub Time.now for created_at field
     @expected_now = 1_679_943_564
@@ -40,19 +41,19 @@ class ProjectManagerTest < ApplicationSystemTestCase
     project_id
   end
 
-  def setup_script(project_id)
+  def setup_launcher(project_id)
     visit project_path(project_id)
     click_on 'New Launcher'
-    find('#launcher_title').set('the script title')
+    find('#launcher_title').set('the launcher title')
     click_on 'Save'
 
-    script_element = all('#launcher_list div.list-group-item').first
-    script_element[:id].gsub('launcher_', '')
+    launcher_element = all('#launcher_list div.list-group-item').first
+    launcher_element[:id].gsub('launcher_', '')
   end
 
-  def add_account(project_id, script_id, save: true)
+  def add_account(project_id, launcher_id, save: true)
     visit project_path(project_id)
-    edit_launcher_path = edit_project_launcher_path(project_id, script_id)
+    edit_launcher_path = edit_project_launcher_path(project_id, launcher_id)
     find("[href='#{edit_launcher_path}']").click
 
     # now add 'auto_accounts'
@@ -62,9 +63,9 @@ class ProjectManagerTest < ApplicationSystemTestCase
     click_on(I18n.t('dashboard.save')) if save
   end
 
-  def add_bc_num_hours(project_id, script_id)
+  def add_bc_num_hours(project_id, launcher_id)
     visit project_path(project_id)
-    edit_launcher_path = edit_project_launcher_path(project_id, script_id)
+    edit_launcher_path = edit_project_launcher_path(project_id, launcher_id)
     find("[href='#{edit_launcher_path}']").click
 
     # now add 'bc_num_hours'
@@ -75,7 +76,7 @@ class ProjectManagerTest < ApplicationSystemTestCase
     click_on(I18n.t('dashboard.save'))
   end
 
-  def add_auto_environment_variable(project_id, script_id, save: true)
+  def add_auto_environment_variable(project_id, launcher_id, save: true)
     # now add 'auto_environment_variable'
     click_on('Add new option')
     select('Environment Variable', from: 'add_new_field_select')
@@ -140,8 +141,6 @@ class ProjectManagerTest < ApplicationSystemTestCase
       find("[href='/projects/#{project_id}']").click
       assert_selector 'h1', text: 'Test Project'
       assert_selector '.btn.btn-default', text: 'Back'
-      # project size is hardcoded to 2MB with stub_du
-      assert_selector '#new-dir-btn', text: 'Project Directory (2 MB)'
     end
   end
 
@@ -167,7 +166,7 @@ class ProjectManagerTest < ApplicationSystemTestCase
       project_id = setup_project(dir)
 
       click_on 'Edit'
-      find('#project_name').set('my-test-project')
+      find('#project_name').set('my-test-project', clear: :backspace)
       click_on 'Save'
       assert_selector "[href='/projects/#{project_id}']", text: 'My Test Project'
       click_on 'Edit'
@@ -213,21 +212,28 @@ class ProjectManagerTest < ApplicationSystemTestCase
   end
 
   test 'searching icons works' do
-    # TODO
+    visit(new_project_path)
+    find('#product_icon_select').set('')
+    find('#product_icon_select').set('cog')
+    icons = find('#icon_picker_list').all('i')
+    assert_equal(4, icons.size)
   end
 
   test 'all icons show after clearing input field' do
-    # TODO
+    visit(new_project_path)
+    find('#product_icon_select').set('')
+    icons = find('#icon_picker_list').all('i')
+    assert_equal(990, icons.size)
   end
 
-  test 'creating and showing scripts' do
+  test 'creating and showing launchers' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
 
       expected_yml = <<~HEREDOC
         ---
-        title: the script title
+        title: the launcher title
         created_at: #{@expected_now}
         form:
         - auto_batch_clusters
@@ -235,8 +241,12 @@ class ProjectManagerTest < ApplicationSystemTestCase
         attributes:
           auto_batch_clusters:
             options:
-            - oakley
-            - owens
+            - - oakley
+              - oakley
+              - data-max-auto-cores: 80
+            - - owens
+              - owens
+              - data-max-auto-cores: 48
             label: Cluster
             help: ''
             required: false
@@ -252,13 +262,13 @@ class ProjectManagerTest < ApplicationSystemTestCase
             required: false
       HEREDOC
 
-      success_message = I18n.t('dashboard.jobs_scripts_created')
+      success_message = I18n.t('dashboard.jobs_launchers_created')
       assert_selector('.alert-success', text: "Close\n#{success_message}")
-      assert_equal(expected_yml, File.read("#{dir}/projects/#{project_id}/.ondemand/scripts/#{script_id}/form.yml"))
+      assert_equal(expected_yml, File.read("#{dir}/projects/#{project_id}/.ondemand/launchers/#{launcher_id}/form.yml"))
 
-      launcher_path = project_launcher_path(project_id, script_id)
-      find("[href='#{launcher_path}'].btn-success").click
-      assert_selector('h1', text: 'the script title', count: 1)
+      launcher_path = project_launcher_path(project_id, launcher_id)
+      find("[href='#{launcher_path}'].btn-info").click
+      assert_selector('h1', text: 'the launcher title', count: 1)
     end
   end
 
@@ -266,12 +276,12 @@ class ProjectManagerTest < ApplicationSystemTestCase
     Dir.mktmpdir do |dir|
       Configuration.stubs(:launcher_default_items).returns(['bc_num_hours'])
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
 
       # note that bc_num_hours is in this YAML.
       expected_yml = <<~HEREDOC
         ---
-        title: the script title
+        title: the launcher title
         created_at: #{@expected_now}
         form:
         - auto_batch_clusters
@@ -280,8 +290,12 @@ class ProjectManagerTest < ApplicationSystemTestCase
         attributes:
           auto_batch_clusters:
             options:
-            - oakley
-            - owens
+            - - oakley
+              - oakley
+              - data-max-auto-cores: 80
+            - - owens
+              - owens
+              - data-max-auto-cores: 48
             label: Cluster
             help: ''
             required: false
@@ -303,22 +317,22 @@ class ProjectManagerTest < ApplicationSystemTestCase
             required: true
       HEREDOC
 
-      success_message = I18n.t('dashboard.jobs_scripts_created')
+      success_message = I18n.t('dashboard.jobs_launchers_created')
       assert_selector('.alert-success', text: "Close\n#{success_message}")
-      assert_equal(expected_yml, File.read("#{dir}/projects/#{project_id}/.ondemand/scripts/#{script_id}/form.yml"))
+      assert_equal(expected_yml, File.read("#{dir}/projects/#{project_id}/.ondemand/launchers/#{launcher_id}/form.yml"))
     end
   end
 
-  test 'showing scripts with auto attributes' do
+  test 'showing launchers with auto attributes' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
       project_dir = File.join(dir, 'projects', project_id)
-      add_account(project_id, script_id)
+      add_account(project_id, launcher_id)
 
-      launcher_path = project_launcher_path(project_id, script_id)
-      find("[href='#{launcher_path}'].btn-success").click
-      assert_selector('h1', text: 'the script title', count: 1)
+      launcher_path = project_launcher_path(project_id, launcher_id)
+      find("[href='#{launcher_path}'].btn-info").click
+      assert_selector('h1', text: 'the launcher title', count: 1)
 
       expected_accounts = ['pas1604', 'pas1754', 'pas1871', 'pas2051', 'pde0006', 'pzs0714', 'pzs0715', 'pzs1010',
                            'pzs1117', 'pzs1118', 'pzs1124'].to_set
@@ -332,44 +346,44 @@ class ProjectManagerTest < ApplicationSystemTestCase
     end
   end
 
-  test 'deleting a script that succeeds' do
+  test 'deleting a launcher that succeeds' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
       project_dir = File.join(dir, 'projects', project_id)
       ondemand_dir = File.join(project_dir, '.ondemand')
-      script_dir = File.join(ondemand_dir, 'scripts', script_id)
+      launcher_dir = File.join(ondemand_dir, 'launchers', launcher_id)
 
       # ASSERT SCRIPT DIRECTORY IS CREATED
-      assert_equal true, File.directory?(script_dir)
+      assert_equal true, File.directory?(launcher_dir)
 
-      expected_script_files = ["#{script_dir}/form.yml", "#{ondemand_dir}/job_log.yml"]
+      expected_script_files = ["#{launcher_dir}/form.yml", "#{ondemand_dir}/job_log.yml"]
       # ASSERT EXPECTED SCRIPT FILES
       expected_script_files.each do |file_path|
         assert_equal true, File.exist?(file_path), "#{file_path} does not exist"
       end
 
       accept_confirm do
-        find("#delete_#{script_id}").click
+        find("#delete_#{launcher_id}").click
       end
 
-      assert_selector '.alert-success', text: 'Script successfully deleted!'
+      assert_selector '.alert-success', text: 'Launcher successfully deleted!'
       # ASSERT SCRIPT DIRECTORY IS DELETED
-      assert_not File.directory? script_dir
+      assert_not File.directory? launcher_dir
     end
   end
 
   test 'submitting a script with auto attributes that succeeds' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
       project_dir = File.join(dir, 'projects', project_id)
       ondemand_dir = File.join(project_dir, '.ondemand')
-      add_account(project_id, script_id)
+      add_account(project_id, launcher_id)
 
-      launcher_path = project_launcher_path(project_id, script_id)
-      find("[href='#{launcher_path}'].btn-success").click
-      assert_selector('h1', text: 'the script title', count: 1)
+      launcher_path = project_launcher_path(project_id, launcher_id)
+      find("[href='#{launcher_path}'].btn-info").click
+      assert_selector('h1', text: 'the launcher title', count: 1)
 
       # assert defaults
       assert_equal 'oakley', find('#launcher_auto_batch_clusters').value
@@ -383,7 +397,7 @@ class ProjectManagerTest < ApplicationSystemTestCase
 
       Open3
         .stubs(:capture3)
-        .with({}, 'sbatch', '-A', 'pas2051', '--export', 'NONE', '--parsable', '-M', 'owens',
+        .with({}, 'sbatch', '-D', project_dir, '-A', 'pas2051', '--export', 'NONE', '--parsable', '-M', 'owens',
               stdin_data: "hostname\n")
         .returns(['job-id-123', '', exit_success])
 
@@ -403,10 +417,10 @@ class ProjectManagerTest < ApplicationSystemTestCase
   test 'submitting a script with job name' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
       project_dir = File.join(dir, 'projects', project_id)
       ondemand_dir = File.join(project_dir, '.ondemand')
-      add_account(project_id, script_id, save: false)
+      add_account(project_id, launcher_id, save: false)
 
       click_on('Add new option')
       select('Job Name', from: 'add_new_field_select')
@@ -414,9 +428,9 @@ class ProjectManagerTest < ApplicationSystemTestCase
       fill_in('launcher_auto_job_name', with: 'my cool job name')
       click_on(I18n.t('dashboard.save'))
 
-      launcher_path = project_launcher_path(project_id, script_id)
-      find("[href='#{launcher_path}'].btn-success").click
-      assert_selector('h1', text: 'the script title', count: 1)
+      launcher_path = project_launcher_path(project_id, launcher_id)
+      find("[href='#{launcher_path}'].btn-info").click
+      assert_selector('h1', text: 'the launcher title', count: 1)
 
       # assert defaults
       assert_equal 'oakley', find('#launcher_auto_batch_clusters').value
@@ -430,8 +444,9 @@ class ProjectManagerTest < ApplicationSystemTestCase
 
       Open3
         .stubs(:capture3)
-        .with({}, 'sbatch', '-J', 'project-manager/my cool job name', '-A', 'pas2051', '--export',
-                  'NONE', '--parsable', '-M', 'owens',
+        .with({}, 'sbatch', '-D', project_dir,
+              '-J', 'project-manager/my cool job name', '-A', 'pas2051', '--export',
+              'NONE', '--parsable', '-M', 'owens',
               stdin_data: "hostname\n")
         .returns(['job-id-123', '', exit_success])
 
@@ -450,14 +465,14 @@ class ProjectManagerTest < ApplicationSystemTestCase
   test 'submitting a script with auto attributes that fails' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
       project_dir = File.join(dir, 'projects', project_id)
       ondemand_dir = File.join(project_dir, '.ondemand')
-      add_account(project_id, script_id)
+      add_account(project_id, launcher_id)
 
-      launcher_path = project_launcher_path(project_id, script_id)
-      find("[href='#{launcher_path}'].btn-success").click
-      assert_selector('h1', text: 'the script title', count: 1)
+      launcher_path = project_launcher_path(project_id, launcher_id)
+      find("[href='#{launcher_path}'].btn-info").click
+      assert_selector('h1', text: 'the launcher title', count: 1)
 
       # assert defaults
       assert_equal 'oakley', find('#launcher_auto_batch_clusters').value
@@ -471,7 +486,7 @@ class ProjectManagerTest < ApplicationSystemTestCase
 
       Open3
         .stubs(:capture3)
-        .with({}, 'sbatch', '-A', 'pas2051', '--export', 'NONE', '--parsable', '-M', 'owens',
+        .with({}, 'sbatch', '-D', project_dir, '-A', 'pas2051', '--export', 'NONE', '--parsable', '-M', 'owens',
               stdin_data: "hostname\n")
         .returns(['', 'some error message', exit_failure])
 
@@ -481,14 +496,14 @@ class ProjectManagerTest < ApplicationSystemTestCase
     end
   end
 
-  test 'editing scripts initializes correctly' do
+  test 'editing launchers initializes correctly' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
 
       visit project_path(project_id)
 
-      edit_launcher_path = edit_project_launcher_path(project_id, script_id)
+      edit_launcher_path = edit_project_launcher_path(project_id, launcher_id)
       find("[href='#{edit_launcher_path}']").click
 
       click_on('Add new option')
@@ -496,21 +511,22 @@ class ProjectManagerTest < ApplicationSystemTestCase
 
       actual_new_options = page.all("##{new_field_id} option").map(&:value).to_set
       expected_new_options = [
-        'bc_num_hours', 'auto_queues', 'bc_num_slots', 'auto_cores',
-        'auto_accounts', 'auto_job_name', 'auto_environment_variable'
+        'bc_num_hours', 'auto_queues', 'bc_num_nodes', 'auto_cores',
+        'auto_accounts', 'auto_job_name', 'auto_environment_variable',
+        'auto_log_location',
       ].to_set
       assert_equal expected_new_options, actual_new_options
     end
   end
 
-  test 'adding new fields to scripts' do
+  test 'adding new fields to launchers' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
 
       visit project_path(project_id)
 
-      edit_launcher_path = edit_project_launcher_path(project_id, script_id)
+      edit_launcher_path = edit_project_launcher_path(project_id, launcher_id)
       find("[href='#{edit_launcher_path}']").click
 
       # only shows 'cluster' & 'auto_scripts'
@@ -523,9 +539,9 @@ class ProjectManagerTest < ApplicationSystemTestCase
       end
 
       # add bc_num_hours
-      add_bc_num_hours(project_id, script_id)
-      script_edit_path = edit_project_launcher_path(project_id, script_id)
-      find("[href='#{script_edit_path}']").click
+      add_bc_num_hours(project_id, launcher_id)
+      launcher_edit_path = edit_project_launcher_path(project_id, launcher_id)
+      find("[href='#{launcher_edit_path}']").click
 
       # now shows 'cluster', 'auto_scripts' & the newly added'bc_num_hours'
       assert_equal 3, page.all('.editable-form-field').size
@@ -542,7 +558,7 @@ class ProjectManagerTest < ApplicationSystemTestCase
       find('#save_launcher_bc_num_hours').click
 
       # add auto_environment_variable
-      add_auto_environment_variable(project_id, script_id)
+      add_auto_environment_variable(project_id, launcher_id)
       find('#edit_launcher_auto_environment_variable').click
 
       find("[data-auto-environment-variable='name']").fill_in(with: 'SOME_VARIABLE')
@@ -552,14 +568,14 @@ class ProjectManagerTest < ApplicationSystemTestCase
 
       # correctly saves
       click_on(I18n.t('dashboard.save'))
-      success_message = I18n.t('dashboard.jobs_scripts_updated')
+      success_message = I18n.t('dashboard.jobs_launchers_updated')
       assert_selector('.alert-success', text: "Close\n#{success_message}")
       assert_current_path project_path(project_id)
 
       # note that bc_num_hours has default, min & max
       expected_yml = <<~HEREDOC
         ---
-        title: the script title
+        title: the launcher title
         created_at: #{@expected_now}
         form:
         - auto_scripts
@@ -573,15 +589,19 @@ class ProjectManagerTest < ApplicationSystemTestCase
               - "#{dir}/projects/#{project_id}/my_cool_script.sh"
             - - my_cooler_script.bash
               - "#{dir}/projects/#{project_id}/my_cooler_script.bash"
-            directory: "#{dir}/projects/#{project_id}"
             value: "#{dir}/projects/#{project_id}/my_cool_script.sh"
+            directory: "#{dir}/projects/#{project_id}"
             label: Script
             help: ''
             required: false
           auto_batch_clusters:
             options:
-            - oakley
-            - owens
+            - - oakley
+              - oakley
+              - data-max-auto-cores: 80
+            - - owens
+              - owens
+              - data-max-auto-cores: 48
             value: oakley
             label: Cluster
             help: ''
@@ -602,22 +622,22 @@ class ProjectManagerTest < ApplicationSystemTestCase
             required: false
       HEREDOC
 
-      assert_equal(expected_yml, File.read("#{dir}/projects/#{project_id}/.ondemand/scripts/#{script_id}/form.yml"))
+      assert_equal(expected_yml, File.read("#{dir}/projects/#{project_id}/.ondemand/launchers/#{launcher_id}/form.yml"))
     end
   end
 
-  test 'removing script fields' do
+  test 'removing launcher fields' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
+      launcher_id = setup_launcher(project_id)
 
       # add bc_num_hours
-      add_bc_num_hours(project_id, script_id)
-      add_account(project_id, script_id)
+      add_bc_num_hours(project_id, launcher_id)
+      add_account(project_id, launcher_id)
 
       # go to edit it and see that there is cluster and bc_num_hours
       visit project_path(project_id)
-      edit_launcher_path = edit_project_launcher_path(project_id, script_id)
+      edit_launcher_path = edit_project_launcher_path(project_id, launcher_id)
       find("[href='#{edit_launcher_path}']").click
       # puts page.body
       assert_equal 4, page.all('.editable-form-field').size
@@ -639,13 +659,13 @@ class ProjectManagerTest < ApplicationSystemTestCase
 
       # correctly saves
       click_on(I18n.t('dashboard.save'))
-      success_message = I18n.t('dashboard.jobs_scripts_updated')
+      success_message = I18n.t('dashboard.jobs_launchers_updated')
       assert_selector('.alert-success', text: "Close\n#{success_message}")
       assert_current_path project_path(project_id)
 
       expected_yml = <<~HEREDOC
         ---
-        title: the script title
+        title: the launcher title
         created_at: #{@expected_now}
         form:
         - auto_accounts
@@ -675,22 +695,26 @@ class ProjectManagerTest < ApplicationSystemTestCase
               - "#{dir}/projects/#{project_id}/my_cool_script.sh"
             - - my_cooler_script.bash
               - "#{dir}/projects/#{project_id}/my_cooler_script.bash"
-            directory: "#{dir}/projects/#{project_id}"
             value: "#{dir}/projects/#{project_id}/my_cool_script.sh"
+            directory: "#{dir}/projects/#{project_id}"
             label: Script
             help: ''
             required: false
           auto_batch_clusters:
             options:
-            - oakley
-            - owens
+            - - oakley
+              - oakley
+              - data-max-auto-cores: 80
+            - - owens
+              - owens
+              - data-max-auto-cores: 48
             value: oakley
             label: Cluster
             help: ''
             required: false
       HEREDOC
 
-      assert_equal(expected_yml, File.read("#{dir}/projects/#{project_id}/.ondemand/scripts/#{script_id}/form.yml"))
+      assert_equal(expected_yml, File.read("#{dir}/projects/#{project_id}/.ondemand/launchers/#{launcher_id}/form.yml"))
     end
   end
 
@@ -706,55 +730,56 @@ class ProjectManagerTest < ApplicationSystemTestCase
     assert_selector('.alert-danger', text: 'Cannot find project 1')
   end
 
-  test 'cant create script when project is invalid' do
+  test 'cant create launcher when project is invalid' do
     visit edit_project_launcher_path('1', '1')
     assert_current_path('/projects')
     assert_selector('.alert-danger', text: "Close\nCannot find project: 1")
   end
 
-  test 'cant show script when project is invalid' do
+  test 'cant show launcher when project is invalid' do
     visit project_launcher_path('1', '1')
     assert_current_path('/projects')
     assert_selector('.alert-danger', text: "Close\nCannot find project: 1")
   end
 
-  test 'cant edit script when project is invalid' do
+  test 'cant edit launcher when project is invalid' do
     visit edit_project_launcher_path('1', '1')
     assert_current_path('/projects')
     assert_selector('.alert-danger', text: "Close\nCannot find project: 1")
   end
 
-  test 'cant show invalid script' do
+  test 'cant show invalid launcher' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      visit project_launcher_path(project_id, '1')
+      visit project_launcher_path(project_id, '12345678')
       assert_current_path("/projects/#{project_id}")
-      assert_selector('.alert-danger', text: "Close\nCannot find script 1")
+      assert_selector('.alert-danger', text: "Close\nCannot find launcher 12345678")
     end
   end
 
-  test 'cant edit invalid script' do
+  test 'cant edit invalid launcher' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      visit edit_project_launcher_path(project_id, '1')
+      visit edit_project_launcher_path(project_id, '12345678')
       assert_current_path("/projects/#{project_id}")
-      assert_selector('.alert-danger', text: "Close\nCannot find script 1")
+      assert_selector('.alert-danger', text: "Close\nCannot find launcher 12345678")
     end
   end
 
   # this test:
-  # creates a project & script with auto_accounts
-  # excludes some of the accounts from auto_accounts in script#edit
-  # asserts that they've actually been removed from script#show
-  # adds some of the accounts back in script#edit
-  # asserts that the _new_ list of excluded accounts have actually been removed from script#show
+  # creates a project & launcher with auto_accounts
+  # excludes some of the accounts from auto_accounts in launcher#edit
+  # asserts that they've actually been removed from launcher#show
+  # adds some of the accounts back in launcher#edit
+  # asserts that the _new_ list of excluded accounts have actually been removed from launcher#show
   test 'excluding and including select options' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
-      add_account(project_id, script_id)
+      launcher_id = setup_launcher(project_id)
+      add_account(project_id, launcher_id)
 
-      visit edit_project_launcher_path(project_id, script_id)
+      sleep 0.5
+      visit edit_project_launcher_path(project_id, launcher_id)
 
       find('#edit_launcher_auto_accounts').click
       exclude_accounts = ['pas2051', 'pas1871', 'pas1754', 'pas1604']
@@ -772,18 +797,18 @@ class ProjectManagerTest < ApplicationSystemTestCase
         assert_equal('false', add_btn[:disabled])
       end
 
-      find('#save_script_edit').click
+      find('#save_launcher_edit').click
       assert_current_path(project_path(project_id))
-      launcher_path = project_launcher_path(project_id, script_id)
-      find("[href='#{launcher_path}'].btn-success").click
+      launcher_path = project_launcher_path(project_id, launcher_id)
+      find("[href='#{launcher_path}'].btn-info").click
 
-      # now let's check scripts#show to see if they've actually been excluded.
+      # now let's check launchers#show to see if they've actually been excluded.
       show_account_options = page.all('#launcher_auto_accounts option').map(&:value)
       exclude_accounts.each do |acct|
         assert(!show_account_options.include?(acct))
       end
 
-      visit edit_project_launcher_path(project_id, script_id)
+      visit edit_project_launcher_path(project_id, launcher_id)
       find('#edit_launcher_auto_accounts').click
 
       exclude_accounts.each do |acct|
@@ -800,12 +825,12 @@ class ProjectManagerTest < ApplicationSystemTestCase
         assert_equal('false', rm_btn[:disabled])
       end
 
-      find('#save_script_edit').click
+      find('#save_launcher_edit').click
       assert_current_path(project_path(project_id))
-      launcher_path = project_launcher_path(project_id, script_id)
-      find("[href='#{launcher_path}'].btn-success").click
+      launcher_path = project_launcher_path(project_id, launcher_id)
+      find("[href='#{launcher_path}'].btn-info").click
 
-      # now let's check scripts#show and they should be back.
+      # now let's check launchers#show and they should be back.
       show_account_options = page.all('#launcher_auto_accounts option').map(&:value)
       exclude_accounts.each do |acct|
         assert(show_account_options.include?(acct))
@@ -816,10 +841,11 @@ class ProjectManagerTest < ApplicationSystemTestCase
   test 'fixing select options' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
-      add_account(project_id, script_id)
+      launcher_id = setup_launcher(project_id)
+      add_account(project_id, launcher_id)
 
-      visit edit_project_launcher_path(project_id, script_id)
+      sleep 0.5
+      visit edit_project_launcher_path(project_id, launcher_id)
 
       find('#edit_launcher_auto_accounts').click
       accounts_select = find('#launcher_auto_accounts')
@@ -847,8 +873,8 @@ class ProjectManagerTest < ApplicationSystemTestCase
   test 'excluding newly created options' do
     Dir.mktmpdir do |dir|
       project_id = setup_project(dir)
-      script_id = setup_script(project_id)
-      visit(edit_project_launcher_path(project_id, script_id))
+      launcher_id = setup_launcher(project_id)
+      visit(edit_project_launcher_path(project_id, launcher_id))
 
       # now add 'auto_accounts'
       click_on('Add new option')
@@ -887,6 +913,7 @@ class ProjectManagerTest < ApplicationSystemTestCase
       assert_equal('', File.read("#{dir}/.project_lookup"))
 
       click_on(I18n.t('dashboard.save'))
+      sleep 2
 
       assert_equal(2, Dir.children(dir).size)
       project_dir = Dir.children(dir).select { |path| File.directory?("#{dir}/#{path}") }.first
@@ -897,11 +924,11 @@ class ProjectManagerTest < ApplicationSystemTestCase
       forms = Dir.glob("#{abs_project_dir}/.ondemand/**/*/form.yml")
       assert_equal(3, forms.size)
 
-      script_id = '8woi7ghd'
-      orig_form = "#{Rails.root}/test/fixtures/projects/chemistry-5533/.ondemand/scripts/#{script_id}/form.yml"
+      launcher_id = '8woi7ghd'
+      orig_form = "#{Rails.root}/test/fixtures/projects/chemistry-5533/.ondemand/launchers/#{launcher_id}/form.yml"
       orig_form = YAML.safe_load(File.read(orig_form))
 
-      new_form = "#{abs_project_dir}/.ondemand/scripts/#{script_id}/form.yml"
+      new_form = "#{abs_project_dir}/.ondemand/launchers/#{launcher_id}/form.yml"
       new_form = YAML.safe_load(File.read(new_form))
 
       # 'form' & 'title' are the same
@@ -942,11 +969,14 @@ class ProjectManagerTest < ApplicationSystemTestCase
       find('i.fa-atom').click
       input_data = File.read('test/fixtures/projects/chemistry-5533/assignment_1.sh')
 
+      project_dir = Dir.children(dir).select { |p| Pathname.new("#{dir}/#{p}").directory? }.first
+      project_dir = "#{dir}/#{project_dir}"
+
       # NOTE: we're using pzs1715 from sacctmgr_show_accts_alt.txt instead of psz0175
       # from the template.
       Open3
         .stubs(:capture3)
-        .with({}, 'sbatch', '-A', 'pzs1715', '--export', 'NONE', '--parsable', '-M', 'owens',
+        .with({}, 'sbatch', '-D', project_dir, '-A', 'pzs1715', '--export', 'NONE', '--parsable', '-M', 'owens',
               stdin_data: input_data)
         .returns(['job-id-123', '', exit_success])
 
@@ -954,6 +984,7 @@ class ProjectManagerTest < ApplicationSystemTestCase
                                    .stubs(:info).returns(OodCore::Job::Info.new(id: 'job-id-123', status: :running))
 
       find("#launch_8woi7ghd").click
+
       assert_selector('.alert-success', text: 'job-id-123')
 
       # sleep here because this test can error with Errno::ENOTEMPTY: Directory not empty @ dir_s_rmdir

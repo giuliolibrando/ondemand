@@ -1,13 +1,12 @@
-
 import _ from 'lodash';
 import {xdmodUrl, analyticsPath} from './config';
-import {today, startOfYear, thirtyDaysAgo} from './utils';
+import {today, startOfYear, thirtyDaysAgo, reportErrorForAnalytics} from './utils';
 import { jobsPanel } from './xdmod/jobs';
-import Handlebars from 'handlebars';
 
 const jobsPageLimit = 10;
 
 const jobHelpers = {
+  realm: 'Jobs',
   title: function(){
     return "Recently Completed Jobs";
   },
@@ -36,33 +35,33 @@ const jobHelpers = {
            minutes.toString().padStart(2, "0") + ":" +
            seconds.toString().padStart(2, "0");
   },
+  // month/day
   date: function(job){
-    // month/day
     let d = new Date(job.start_time_ts*1000),
         month = d.getMonth()+1,
         day = d.getUTCDate();
 
     return `${month}/${day}`;
   },
-  job_url: function(id){ return `${xdmodUrl()}/#job_viewer?action=show&realm=SUPREMM&jobref=${id}`;  },
-  cpu_label: function(cpu){
-    let value = (parseFloat(cpu)*100).toFixed(1),
-        label = "N/A";
+  job_url: function(id){ return `${xdmodUrl()}/#job_viewer?action=show&realm=${this.realm}&jobref=${id}`;  },
+  efficiency_label: function(efficiencyValue, inverse = false){
+    const value = (parseFloat(efficiencyValue)*100).toFixed(1);
+    let label = "N/A";
 
     if(! isNaN(value)){
       let severity = "warning";
 
-      if(cpu > 0.74){
-        severity = "success";
+      if(efficiencyValue > 0.74){
+        severity = inverse ? "danger" : "success";
       }
-      else if(cpu < 0.25){
-        severity = "danger";
+      else if(efficiencyValue < 0.25){
+        severity = inverse ? "success" : "danger";
       }
 
-      label = `<span class="badge bg-${severity}">${Handlebars.escapeExpression(value.toString().padStart(4,0))}</span>`;
+      label = `<span class="badge bg-${severity}">${value.toString().padStart(4,0)}</span>`;
     }
 
-    return new Handlebars.SafeString(label);
+    return label;
   }
 };
 
@@ -84,12 +83,12 @@ var efficiencyHelpers = {
   }
 };
 
-function promiseLoginToXDMoD(xdmodUrl){
+function promiseLoginToXDMoD(){
   return new Promise(function(resolve, reject){
 
     var promise_to_receive_message_from_iframe = new Promise(function(resolve, reject){
       window.addEventListener("message", function(event){
-        if (event.origin !== xdmodUrl){
+        if (event.origin !== xdmodUrl()){
           console.log('Received message from untrusted origin, discarding');
           return;
         }
@@ -106,8 +105,8 @@ function promiseLoginToXDMoD(xdmodUrl){
       }, false);
     });
 
-    fetch(xdmodUrl + '/rest/auth/idpredirect?returnTo=%2Fgui%2Fgeneral%2Flogin.php')
-      .then(response => response.ok ? Promise.resolve(response) : Promise.reject())
+    fetch(xdmodUrl() + '/rest/auth/idpredirect?returnTo=%2Fgui%2Fgeneral%2Flogin.php')
+      .then(response => response.ok ? Promise.resolve(response) : Promise.reject(new Error('Login failed: IDP redirect failed')))
       .then(response => response.json())
       .then(function(data){
         return new Promise(function(resolve, reject){
@@ -153,6 +152,7 @@ var promiseLoggedIntoXDMoD = (function(){
       })
       .then((user_data) => {
         if(user_data && user_data.success && user_data.results && user_data.results.person_id){
+          jobHelpers.realm = user_data.results.raw_data_allowed_realms?.includes('SUPREMM') ? 'SUPREMM' : 'Jobs';
           return Promise.resolve(user_data);
         }
         else{
@@ -162,14 +162,12 @@ var promiseLoggedIntoXDMoD = (function(){
   });
 })();
 
-
-
 function jobsUrl(user){
   var url = new URL(`${xdmodUrl()}/rest/v1/warehouse/search/jobs`);
   url.searchParams.set('_dc', Date.now());
   url.searchParams.set('start_date', thirtyDaysAgo());
   url.searchParams.set('end_date', today());
-  url.searchParams.set('realm', user?.results?.raw_data_allowed_realms?.includes('SUPREMM') ? 'SUPREMM' : 'Jobs');
+  url.searchParams.set('realm', jobHelpers.realm);
   url.searchParams.set('limit', jobsPageLimit);
   url.searchParams.set('start', 0);
   url.searchParams.set('verbose', true);
@@ -210,23 +208,93 @@ function renderJobs(context) {
   panel.replaceChildren(jobs);
 }
 
+function renderEfficiencyPanel(panelId, context) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+
+  const card = document.createElement('div');
+  card.className = 'card mt-3';
+
+  const cardHeader = document.createElement('div');
+  cardHeader.className = 'card-header';
+
+  const link = document.createElement('a');
+  link.href = efficiencyHelpers.xdmod_url();
+  link.className = 'float-end';
+  link.innerHTML = 'Open XDMoD <span class="fa fa-external-link-square-alt"></span>';
+  cardHeader.appendChild(link);
+
+  const title = document.createElement('h3');
+  title.innerHTML = `${efficiencyHelpers.title.call(context)} - ${efficiencyHelpers.date_range()}`;
+  cardHeader.appendChild(title);
+
+  card.appendChild(cardHeader);
+
+  const cardBody = document.createElement('div');
+  cardBody.className = 'card-body';
+
+  if (context.error) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-danger mb-0';
+    alert.innerHTML = `${context.error} Please ensure you are <a href="${efficiencyHelpers.xdmod_url()}">logged into Open XDMoD first</a>, and then try again.`;
+    cardBody.appendChild(alert);
+  } else if (context.nodata) {
+    const paragraph = document.createElement('p');
+    paragraph.className = 'card-text';
+    paragraph.textContent = context.msg;
+    cardBody.appendChild(paragraph);
+  } else {
+    const efficiencyParagraph = document.createElement('p');
+    efficiencyParagraph.className = 'd-flex justify-content-between card-text font-weight-bold';
+    efficiencyParagraph.innerHTML = `<span class="text-success">${efficiencyHelpers.good_percent.call(context)}% efficient</span> <span class="text-danger">${efficiencyHelpers.bad_percent.call(context)}% inefficient</span>`;
+    cardBody.appendChild(efficiencyParagraph);
+
+    const progressDiv = document.createElement('div');
+    progressDiv.className = 'progress progress-custom';
+
+    const progressBarSuccess = document.createElement('div');
+    progressBarSuccess.className = 'progress-bar bg-success';
+    progressBarSuccess.style.width = `${efficiencyHelpers.good_percent.call(context)}%`;
+    progressBarSuccess.setAttribute('role', 'progressbar');
+    progressBarSuccess.setAttribute('aria-label', 'percent efficient');
+    progressBarSuccess.setAttribute('aria-valuenow', efficiencyHelpers.good_percent.call(context));
+    progressBarSuccess.setAttribute('aria-valuemin', '0');
+    progressBarSuccess.setAttribute('aria-valuemax', '100');
+    progressDiv.appendChild(progressBarSuccess);
+
+    const progressBarDanger = document.createElement('div');
+    progressBarDanger.className = 'progress-bar bg-danger';
+    progressBarDanger.style.width = `${efficiencyHelpers.bad_percent.call(context)}%`;
+    progressBarDanger.setAttribute('role', 'progressbar');
+    progressBarDanger.setAttribute('aria-label', 'percent inefficient');
+    progressBarDanger.setAttribute('aria-valuenow', efficiencyHelpers.bad_percent.call(context));
+    progressBarDanger.setAttribute('aria-valuemin', '0');
+    progressBarDanger.setAttribute('aria-valuemax', '100');
+    progressDiv.appendChild(progressBarDanger);
+
+    cardBody.appendChild(progressDiv);
+
+    const countParagraph = document.createElement('p');
+    countParagraph.className = 'card-text text-center mt-2';
+    countParagraph.innerHTML = `<span class="text-danger">${context.count_bad} inefficient ${context.unit} </span> &frasl; ${context.count} total ${context.unit}`;
+    cardBody.appendChild(countParagraph);
+  }
+
+  card.appendChild(cardBody);
+  panel.replaceChildren(card);
+}
+
 function renderJobsEfficiency(context) {
-  const newConext = _.merge(context, {unit: "jobs", unit_title: "Jobs"});
-  const templateSource = $('#job-efficiency-template').html();
-  const template = Handlebars.compile(templateSource);
-  $(`#${jobEfficiencyPanelId}`).html(template(newConext, { helpers: efficiencyHelpers }));
+  renderEfficiencyPanel(jobEfficiencyPanelId, _.merge(context, {unit: "jobs", unit_title: "Jobs"}));
 }
 
 function renderCoreHoursEfficiency(context) {
-  const newContext = _.merge(context, {unit: "core hours", unit_title: "Core Hours"});
-  const templateSource = $('#job-efficiency-template').html();
-  const template = Handlebars.compile(templateSource);
-  $(`#${coreEfficiencyPanelId}`).html(template(newContext, {helpers: efficiencyHelpers}));
+  renderEfficiencyPanel(coreEfficiencyPanelId, _.merge(context, {unit: "core hours", unit_title: "Core Hours"}));
 }
 
 function createJobsWidget() {
-  const panel = $(`#${jobPanelId}`);
-  if(panel.length == 0){
+  const panel = document.getElementById(jobPanelId);
+  if(!panel){
     return;
   }
 
@@ -239,22 +307,19 @@ function createJobsWidget() {
       console.error(error);
       renderJobs({error: error});
 
-      // error - report back for analytics purposes
-      const analyticsUrl = new URL(analyticsPath('xdmod_jobs_widget_error'), document.location);
-      analyticsUrl.searchParams.append('error', error);
-      fetch(analyticsUrl);
+      reportErrorForAnalytics('xdmod_jobs_widget_error', error);
     });
 }
 
 function createEfficiencyWidgets() {
-  const jobPanel = $(`#${jobEfficiencyPanelId}`);
-  const corePanel = $(`#${coreEfficiencyPanelId}`);
+  const jobPanel = document.getElementById(jobEfficiencyPanelId);
+  const corePanel = document.getElementById(coreEfficiencyPanelId);
 
-  if(jobPanel.length == 0 || corePanel.length == 0) {
+  if(!jobPanel || !corePanel) {
     return;
   }
 
-  promiseLoggedIntoXDMoD(xdmodUrl)
+  promiseLoggedIntoXDMoD()
   .then((user_data) => fetch(aggregateDataUrl(user_data), { credentials: 'include' }))
   .then(response => response.ok ? Promise.resolve(response) : Promise.reject(new Error(response.statusText)))
   .then(response => response.json())
@@ -287,17 +352,16 @@ function createEfficiencyWidgets() {
     renderJobsEfficiency({error: error});
     renderCoreHoursEfficiency({error: error});
 
-    // error - report back for analytics purposes
-    const analyticsUrl = new URL(analyticsPath('xdmod_jobs_widget_error'), document.location);
-    analyticsUrl.searchParams.append('error', error);
-    fetch(analyticsUrl);
+    reportErrorForAnalytics('xdmod_jobs_widget_error', error);
   });
 }
 
 jQuery(() => {
-  createJobsWidget();
-  createEfficiencyWidgets();
-
   // initialize the panels
   renderJobs({ loading: true });
+  renderJobsEfficiency({nodata: true, msg: 'LOADING...'});
+  renderCoreHoursEfficiency({nodata: true, msg: 'LOADING...'});
+
+  createJobsWidget();
+  createEfficiencyWidgets();
 });

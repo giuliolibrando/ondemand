@@ -1,3 +1,7 @@
+<%- # Short circuits the loading of layouts, js, css, etc only when hotwire turbo-frames are requested -%>
+<%- # Consider adding similar return statement for turbo-streams after looking into our needs around this -%>
+<%= return "turbo_rails/frame" if turbo_frame_request? %>
+
 <!DOCTYPE html>
 <html lang="<%= Configuration.locale %>">
 <head>
@@ -23,10 +27,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="profile" content="<%= @user_configuration.profile %>">
 
+  <meta name="generator" content="Open OnDemand" />
+
   <%= render partial: 'layouts/config' %>
 </head>
 <body>
   <header>
+    <span class="row">
+      <a href="#main_container" class="skip-link"><%= t('dashboard.skip_navigation') %></a>
+    </span>
+
     <nav class="navbar navbar-expand-md shadow-sm navbar-color navbar-<%= @user_configuration.navbar_type %>">
       <ul class="navbar-nav w-100 align-items-center" role="menubar">
         <%= render partial: 'layouts/nav/logo' %>
@@ -60,6 +70,10 @@
       </ul>
     </nav>
   </header>
+
+  <div id="full_page_spinner" class="global-full-page-spinner d-none">
+    <div class="spinner-border" role="status"></div>
+  </div>
 
   <div id="main_container" class="<%= local_assigns[:layout_container_class] || 'container-md' %> content mt-4" role="main">
 
@@ -103,5 +117,6 @@
   </div><!-- /.container -->
 
   <%= render "layouts/footer" %>
+  <div id="aria_live_region" class="visually-hidden" aria-live="polite"></div>
 </body>
 </html>

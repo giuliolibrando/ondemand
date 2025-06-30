@@ -1,6 +1,6 @@
 # The router class for all system apps.
 class SysRouter
-  attr_reader :name
+  attr_reader :name, :owner, :caption, :category
 
   #TODO: consider making SysRouter a subclass of
   # OodAppkit::Url
@@ -9,20 +9,28 @@ class SysRouter
   #
   # @return [Array<OodApp>] all system apps
   def self.apps
-    target = base_path
-    if target.directory? && target.executable? && target.readable?
-      target.children.map { |d| OodApp.new self.new(d.basename) }
-        .select(&:directory?)
-        .select(&:accessible?)
-        .reject(&:hidden?)
-        .reject(&:backup?)
-    else
-      []
+    Rails.cache.fetch('sys_apps', expires_in: 6.hours) do
+      target = base_path
+      if target.directory? && target.executable? && target.readable?
+        target.children.map do |d|
+          router = new(d.basename)
+          app = OodApp.new(router)
+          app.batch_connect_app? ? BatchConnect::App.new(router: router) : app
+        end.select(&:directory?)
+           .select(&:accessible?)
+           .reject(&:hidden?)
+           .reject(&:backup?)
+      else
+        []
+      end
     end
   end
 
   def initialize(name)
     @name = name.to_s
+    @owner = :sys
+    @caption = I18n.t('dashboard.system_apps_caption')
+    @category = ""
   end
 
   def token
@@ -35,18 +43,6 @@ class SysRouter
 
   def type
     :sys
-  end
-
-  def owner
-    :sys
-  end
-
-  def caption
-    "System Installed App"
-  end
-
-  def category
-    ""
   end
 
   def url

@@ -467,6 +467,14 @@ describe OodPortalGenerator::Application do
         expect(described_class.dex_output).to receive(:write).with(expected_dex_yaml)
         described_class.generate()
       end
+
+      it 'raises an error when config is provided, but dex is not installed' do
+        allow(OodPortalGenerator::Dex).to receive(:installed?).and_return(false)
+        expect {
+          allow(described_class).to receive(:context).and_return({ dex: nil })
+          described_class.generate
+        }.to(raise_error(ArgumentError, /You do not have dex installed/))
+      end
     end
   end
 
@@ -477,26 +485,17 @@ describe OodPortalGenerator::Application do
       end
     end
 
-    it 'should use SCL apache' do
-      allow(OodPortalGenerator).to receive(:scl_apache?).and_return(true)
-      allow(OodPortalGenerator).to receive(:debian?).and_return(false)
-      expect(described_class.apache).to eq('/opt/rh/httpd24/root/etc/httpd/conf.d/ood-portal.conf')
-    end
-
-    it 'should not use SCL apache' do
-      allow(OodPortalGenerator).to receive(:scl_apache?).and_return(false)
+    it 'should use EL apache' do
       allow(OodPortalGenerator).to receive(:debian?).and_return(false)
       expect(described_class.apache).to eq('/etc/httpd/conf.d/ood-portal.conf')
     end
 
     it 'should work for Debian systems' do
-      allow(OodPortalGenerator).to receive(:scl_apache?).and_return(false)
       allow(OodPortalGenerator).to receive(:debian?).and_return(true)
       expect(described_class.apache).to eq('/etc/apache2/sites-available/ood-portal.conf')
     end
 
     it 'handles prefix from env' do
-      allow(OodPortalGenerator).to receive(:scl_apache?).and_return(false)
       allow(OodPortalGenerator).to receive(:debian?).and_return(false)
       with_modified_env PREFIX: '/foo' do
         expect(described_class.apache).to eq('/foo/etc/httpd/conf.d/ood-portal.conf')
@@ -507,14 +506,13 @@ describe OodPortalGenerator::Application do
   describe 'save_checksum' do
     before(:each) do
       allow(File).to receive(:exist?).with('/dne.conf').and_return(true)
-      allow(OodPortalGenerator).to receive(:scl_apache?).and_return(true)
       allow(OodPortalGenerator).to receive(:debian?).and_return(false)
     end
 
     it 'saves checksum file' do
       allow(File).to receive(:readlines).with('/dne.conf').and_return(["# comment\n", "foo\n", "  #comment\n"])
       described_class.save_checksum('/dne.conf')
-      expect(File.read(sum_path.path)).to eq("b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c /opt/rh/httpd24/root/etc/httpd/conf.d/ood-portal.conf\n")
+      expect(File.read(sum_path.path)).to eq("b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c /etc/httpd/conf.d/ood-portal.conf\n")
     end
   end
 
@@ -525,7 +523,7 @@ describe OodPortalGenerator::Application do
     end
 
     it 'matches' do
-      allow(File).to receive(:readlines).with(sum_path.path).and_return(["b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c /opt/rh/httpd24/root/etc/httpd/conf.d/ood-portal.conf\n"])
+      allow(File).to receive(:readlines).with(sum_path.path).and_return(["b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c /etc/httpd/conf.d/ood-portal.conf\n"])
       allow(File).to receive(:readlines).with('/dne.conf').and_return(["# comment\n", "foo\n", "  #comment\n"])
       expect(described_class.checksum_matches?('/dne.conf')).to eq(true)
     end
@@ -537,7 +535,7 @@ describe OodPortalGenerator::Application do
     end
 
     it 'does not match' do
-      allow(File).to receive(:readlines).with(sum_path.path).and_return(["b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c /opt/rh/httpd24/root/etc/httpd/conf.d/ood-portal.conf\n"])
+      allow(File).to receive(:readlines).with(sum_path.path).and_return(["b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c /etc/httpd/conf.d/ood-portal.conf\n"])
       allow(File).to receive(:readlines).with('/dne.conf').and_return(["# comment\n", "bar\n", "  #comment\n"])
       expect(described_class.checksum_matches?('/dne.conf')).to eq(false)
     end
@@ -546,7 +544,7 @@ describe OodPortalGenerator::Application do
   describe 'checksum_exists?' do
     it 'returns true' do
       allow(File).to receive(:zero?).with(sum_path.path).and_return(false)
-      allow(File).to receive(:readlines).with(sum_path.path).and_return(["b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c /opt/rh/httpd24/root/etc/httpd/conf.d/ood-portal.conf\n"])
+      allow(File).to receive(:readlines).with(sum_path.path).and_return(["b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c /etc/httpd/conf.d/ood-portal.conf\n"])
       expect(described_class.checksum_exists?).to eq(true)
     end
 
@@ -602,19 +600,12 @@ describe OodPortalGenerator::Application do
   end
 
   describe 'apache_changed_output' do
-    it 'SCL apache' do
+    it 'EL apache' do
       allow(OodPortalGenerator).to receive(:debian?).and_return(false)
-      allow(OodPortalGenerator).to receive(:scl_apache?).and_return(true)
-      expect(described_class.apache_changed_output.join("\n")).to match(%r{httpd24-httpd.service})
-    end
-    it 'EL non-SCL apache' do
-      allow(OodPortalGenerator).to receive(:debian?).and_return(false)
-      allow(OodPortalGenerator).to receive(:scl_apache?).and_return(false)
       expect(described_class.apache_changed_output.join("\n")).to match(%r{httpd.service})
     end
     it 'Debian apache' do
       allow(OodPortalGenerator).to receive(:debian?).and_return(true)
-      allow(OodPortalGenerator).to receive(:scl_apache?).and_return(false)
       expect(described_class.apache_changed_output.join("\n")).to match(%r{apache2.service$})
     end
   end

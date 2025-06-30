@@ -1,5 +1,6 @@
 require 'pathname'
 require 'dotenv'
+require_relative '../lib/current_user'
 
 # Dashboard app specific configuration singleton definition
 # following the first proposal in:
@@ -27,6 +28,7 @@ class ConfigurationSingleton
   alias_method :app_sharing_facls_enabled?, :app_sharing_facls_enabled
 
   def initialize
+    load_dotenv_files
     add_boolean_configs
     add_string_configs
   end
@@ -54,6 +56,8 @@ class ConfigurationSingleton
       :upload_enabled               => true,
       :download_enabled             => true,
       :project_size_enabled         => true,
+      :widget_partials_enabled      => false,
+      :unsafe_render_html           => false,
     }.freeze
   end
 
@@ -64,7 +68,7 @@ class ConfigurationSingleton
   def string_configs
     {
       :module_file_dir                => nil,
-      :user_settings_file             => Pathname.new("~/.config/ondemand/settings.yml").expand_path.to_s,
+      :user_settings_file             => Pathname.new("~/.config/#{ood_portal}/settings.yml").expand_path.to_s,
       :facl_domain                    => nil,
       :auto_groups_filter             => nil,
       :bc_clean_old_dirs_days         => '30',
@@ -73,8 +77,9 @@ class ConfigurationSingleton
       :rclone_extra_config            => nil,
       :default_profile                => nil,
       :project_size_timeout           => '15',
-      :novnc_default_compression   => '6',
-      :novnc_default_quality       => '2'
+      :novnc_default_compression      => '6',
+      :novnc_default_quality          => '2',
+      :plugins_directory              => '/etc/ood/config/plugins'
     }.freeze
   end
 
@@ -214,6 +219,13 @@ class ConfigurationSingleton
     config.fetch(:launcher_default_items, []).to_a
   end
 
+  def global_bc_form_item(key)
+    return nil if key.nil? || key.to_s.empty?
+
+    all = config.fetch(:global_bc_form_items, {}).to_h
+    all[key.to_sym]
+  end
+
   # Load the dotenv local files first, then the /etc dotenv files and
   # the .env and .env.production or .env.development files.
   #
@@ -268,12 +280,16 @@ class ConfigurationSingleton
     #
     root = ENV['OOD_DATAROOT'] || ENV['RAILS_DATAROOT']
     if rails_env == "production"
-      root ||= "~/#{ENV['OOD_PORTAL'] || 'ondemand'}/data/#{ENV['APP_TOKEN'] || 'sys/dashboard'}"
+      root ||= "~/#{ood_portal}/data/#{ENV['APP_TOKEN'] || 'sys/dashboard'}"
     else
       root ||= app_root.join("data")
     end
 
     Pathname.new(root).expand_path
+  end
+
+  def ood_portal
+    ENV['OOD_PORTAL'] || 'ondemand'
   end
 
   def locale
@@ -296,7 +312,7 @@ class ConfigurationSingleton
 
   # Setting terminal functionality in files app
   def files_enable_shell_button
-    to_bool(config.fetch(:files_enable_shell_button, true))
+    can_access_shell? && to_bool(config.fetch(:files_enable_shell_button, true))
   end
 
   # Report performance of activejobs table rendering
@@ -355,6 +371,14 @@ class ConfigurationSingleton
     ENV['OOD_DOWNLOAD_DIR_MAX']&.to_i || 10737418240
   end
 
+  # The maximum size of a file that can be opened in the file editor.
+  #
+  # Default for OOD_FILE_EDITOR_MAX_SIZE is 12*1024*1024 bytes.
+  # @return [Integer]
+  def file_editor_max_size
+    ENV['OOD_FILE_EDITOR_MAX_SIZE']&.to_i || 12582912 
+  end
+
   def allowlist_paths
     (ENV['OOD_ALLOWLIST_PATH'] || ENV['WHITELIST_PATH'] || "").split(':').map{ |s| Pathname.new(s) }
   end
@@ -384,8 +408,8 @@ class ConfigurationSingleton
   # Returns the number of milliseconds to wait between calls to the system status page
   # The default is 30s and the minimum is 10s.
   def status_poll_delay
-    status_poll_delay = ENV['STATUS_POLL_DELAY']
-    status_poll_delay_int = status_poll_delay.nil? ? config.fetch(:status_delay, '30000').to_i : status_poll_delay.to_i
+    status_poll_delay = ENV['OOD_STATUS_POLL_DELAY']
+    status_poll_delay_int = status_poll_delay.nil? ? config.fetch(:status_poll_delay, '30000').to_i : status_poll_delay.to_i
     status_poll_delay_int < 10_000 ? 10_000 : status_poll_delay_int
   end
 
@@ -393,8 +417,8 @@ class ConfigurationSingleton
   # to update the sessions card information.
   # The default and minimum value is 10s = 10_000
   def bc_sessions_poll_delay
-    bc_poll_delay = ENV['POLL_DELAY']
-    bc_poll_delay_int = bc_poll_delay.nil? ? config.fetch(:sessions_poll_delay, '10000').to_i : bc_poll_delay.to_i
+    bc_poll_delay = ENV['OOD_BC_SESSIONS_POLL_DELAY'] || ENV['POLL_DELAY']
+    bc_poll_delay_int = bc_poll_delay.nil? ? config.fetch(:bc_sessions_poll_delay, '10000').to_i : bc_poll_delay.to_i
     bc_poll_delay_int < 10_000 ? 10_000 : bc_poll_delay_int
   end
 
@@ -419,6 +443,15 @@ class ConfigurationSingleton
     sources
   end
 
+  def rails_env_production?
+    rails_env == 'production'
+  end
+
+  def shared_projects_root
+    # This environment varible will support ':' colon separated paths
+    ENV['OOD_SHARED_PROJECT_PATH'].to_s.split(":").map { |p| Pathname.new(p) }
+  end
+
   private
 
   def can_access_core_app?(name)
@@ -428,13 +461,16 @@ class ConfigurationSingleton
 
   def read_config
     files = Pathname.glob(config_directory.join("*.{yml,yaml,yml.erb,yaml.erb}"))
-    files.sort.each_with_object({}) do |f, conf|
+    files.sort.select do |f|
+      # only resond to root owned files in production.
+      rails_env == 'production' ? File.stat(f).uid.zero? : true
+    end.each_with_object({}) do |f, conf|
       begin
         content = ERB.new(f.read, trim_mode: "-").result(binding)
         yml = YAML.safe_load(content, aliases: true) || {}
         conf.deep_merge!(yml.deep_symbolize_keys)
       rescue => e
-        Rails.logger.error("Can't read or parse #{f} because of error #{e}")
+        $stderr.puts("Can't read or parse #{f} because of error #{e}")
       end
     end
   end

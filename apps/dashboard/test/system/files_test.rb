@@ -1,7 +1,8 @@
-require "application_system_test_case"
+# frozen_string_literal: true
+
+require 'application_system_test_case'
 
 class FilesTest < ApplicationSystemTestCase
-
   MAX_WAIT = 120
 
   def setup
@@ -20,7 +21,7 @@ class FilesTest < ApplicationSystemTestCase
     assert_equal 0, messages.length, "console error messages include:\n\n#{content}\n\n"
   end
 
-  test "visiting files app directory" do
+  test 'visiting files app directory' do
     visit files_url(Rails.root.to_s)
     find('tbody a', exact_text: 'app').ancestor('tr').find('input[type="checkbox"]').click
     assert_selector '.selected', count: 1
@@ -28,31 +29,31 @@ class FilesTest < ApplicationSystemTestCase
     assert_selector '.selected', count: 2
   end
 
-  test "adding new file" do
+  test 'adding new file' do
     Dir.mktmpdir do |dir|
       visit files_url(dir)
       find('#new-file-btn').click
-      find('#swal2-input').set('bar.txt')
-      find('.swal2-confirm').click
+      find('#files_input_modal_input').set('bar.txt')
+      find('#files_input_modal_ok_button').click
       find('tbody a', exact_text: 'bar.txt', wait: MAX_WAIT)
       assert File.file? File.join(dir, 'bar.txt')
     end
   end
 
-  test "adding a new directory" do
+  test 'adding a new directory' do
     Dir.mktmpdir do |dir|
       visit files_url(dir)
       find('#new-dir-btn').click
-      find('#swal2-input').set('bar')
-      find('.swal2-confirm').click
-      find('tbody a.d', exact_text: 'bar', wait: MAX_WAIT)
+      find('#files_input_modal_input').set('bar')
+      find('#files_input_modal_ok_button').click
+      find('tbody a[data-type="d"]', exact_text: 'bar', wait: MAX_WAIT)
       assert File.directory? File.join(dir, 'bar')
     end
   end
 
-  test "copying files" do
+  test 'copying files' do
     visit files_url(Rails.root.to_s)
-    %w(app config manifest.yml).each do |f|
+    ['app', 'config', 'manifest.yml'].each do |f|
       find('a', exact_text: f).ancestor('tr').find('input[type="checkbox"]').click
     end
     assert_selector '.selected', count: 3
@@ -75,9 +76,12 @@ class FilesTest < ApplicationSystemTestCase
 
       # with copying done, let's assert on the UI and the file system
       assert_selector 'span', text: '100% copy files', count: 1
-      assert_equal "", `diff -rq #{File.join(dir, 'app')} #{Rails.root.join('app').to_s}`.strip, "failed to recursively copy app dir"
-      assert_equal "", `diff -rq #{File.join(dir, 'config')} #{Rails.root.join('config').to_s}`.strip, "failed to recursively copy config dir"
-      assert_equal "", `diff -q #{File.join(dir, 'manifest.yml')} #{Rails.root.join('manifest.yml').to_s}`.strip, "failed to copy manifest.yml"
+      assert_equal '', `diff -rq #{File.join(dir, 'app')} #{Rails.root.join('app')}`.strip,
+                   'failed to recursively copy app dir'
+      assert_equal '', `diff -rq #{File.join(dir, 'config')} #{Rails.root.join('config')}`.strip,
+                   'failed to recursively copy config dir'
+      assert_equal '', `diff -q #{File.join(dir, 'manifest.yml')} #{Rails.root.join('manifest.yml')}`.strip,
+                   'failed to copy manifest.yml'
 
       sleep 6 # need to guarantee that this disappears after 5 seconds.
       assert_selector 'span', text: '100% copy files', count: 0
@@ -145,7 +149,7 @@ class FilesTest < ApplicationSystemTestCase
       assert_selector '#directory-contents tbody tr', count: 3
       find('tbody a', exact_text: 'real_file', wait: MAX_WAIT)
       find('tbody a', exact_text: 'link', wait: MAX_WAIT)
-      find('tbody a.d', exact_text: 'linked_dir', wait: MAX_WAIT)
+      find('tbody a[data-type="d"]', exact_text: 'linked_dir', wait: MAX_WAIT)
 
       # the symlinks are copied as a symlinks and they still point to the same realpath
       sym_file = Pathname.new("#{dir}/dest/src/link")
@@ -234,7 +238,7 @@ class FilesTest < ApplicationSystemTestCase
     end
   end
 
-  test "rename file" do
+  test 'rename file' do
     Dir.mktmpdir do |dir|
       FileUtils.touch File.join(dir, 'foo.txt')
 
@@ -244,23 +248,22 @@ class FilesTest < ApplicationSystemTestCase
       tr.find('.rename-file').click
 
       # rename dialog input
-      find('#swal2-input').set('bar.txt')
-      find('.swal2-confirm').click
+      find('#files_input_modal_input').set('bar.txt')
+      find('#files_input_modal_ok_button').click
 
       find('tbody a', exact_text: 'bar.txt', wait: MAX_WAIT)
       assert File.file? File.join(dir, 'bar.txt')
     end
   end
 
-  test "moving files" do
+  test 'moving files' do
     Dir.mktmpdir do |dir|
       # copy to dest/app
       src = File.join(dir, 'app')
       dest = File.join(dir, 'dest')
       FileUtils.mkpath dest
 
-      `cp -r #{Rails.root.join('app').to_s} #{src}`
-
+      `cp -r #{Rails.root.join('app')} #{src}`
 
       # select dir to move
       visit files_url(dir)
@@ -273,14 +276,15 @@ class FilesTest < ApplicationSystemTestCase
       find('tbody a', exact_text: 'app', wait: MAX_WAIT)
 
       # verify contents moved
-      assert_equal "", `diff -rq #{File.join(dest, 'app')} #{Rails.root.join('app').to_s}`.strip, "failed to mv app and all contents"
+      assert_equal '', `diff -rq #{File.join(dest, 'app')} #{Rails.root.join('app')}`.strip,
+                   'failed to mv app and all contents'
 
       # verify original does not exist
       refute File.directory?(src)
     end
   end
 
-  test "removing files" do
+  test 'removing files' do
     Dir.mktmpdir do |dir|
       # copy to dest/app
       src = File.join(dir, 'app')
@@ -296,7 +300,7 @@ class FilesTest < ApplicationSystemTestCase
       find('tbody a', exact_text: 'app').ancestor('tr').check
       find('tbody a', exact_text: 'single_file').ancestor('tr').check
       find('#delete-btn').click
-      find('button.swal2-confirm').click
+      find('#files_input_modal_ok_button').click
 
       # verify app dir deleted according to UI
       assert_no_selector 'tbody a', exact_text: 'app', wait: 10
@@ -308,9 +312,8 @@ class FilesTest < ApplicationSystemTestCase
     end
   end
 
-  test "uploading files" do
+  test 'uploading files' do
     Dir.mktmpdir do |dir|
-
       FileUtils.mkpath File.join(dir, 'foo')
 
       visit files_url(dir)
@@ -380,25 +383,25 @@ class FilesTest < ApplicationSystemTestCase
     end
   end
 
-  test "changing directory" do
+  test 'changing directory' do
     visit files_url(Rails.root.to_s)
     find('tbody a', exact_text: 'app')
     find('tbody a', exact_text: 'config')
 
     find('#goto-btn').click
-    find('#swal2-input').set(Rails.root.join("app"))
-    find('.swal2-confirm').click
+    find('#files_input_modal_input').set(Rails.root.join('app'))
+    find('#files_input_modal_ok_button').click
     find('tbody a', exact_text: 'helpers')
     find('tbody a', exact_text: 'controllers')
 
     find('#goto-btn').click
-    find('#swal2-input').set(Rails.root.to_s)
-    find('.swal2-confirm').click
+    find('#files_input_modal_input').set(Rails.root.to_s)
+    find('#files_input_modal_ok_button').click
     find('tbody a', exact_text: 'app')
     find('tbody a', exact_text: 'config')
   end
 
-  test "edit file" do
+  test 'edit file' do
     OodAppkit.stubs(:files).returns(OodAppkit::Urls::Files.new(title: 'Files', base_url: '/files'))
     OodAppkit.stubs(:editor).returns(OodAppkit::Urls::Editor.new(title: 'Editor', base_url: '/files'))
 
@@ -510,11 +513,11 @@ class FilesTest < ApplicationSystemTestCase
       dir_to_dl = "#{dir}/test_dir"
       `mkdir -p #{dir_to_dl}/first_level_dir`
       `mkdir #{dir_to_dl}/.first_level_hidden_dir`
-      `touch #{dir_to_dl}/real_file`
-      `touch #{dir_to_dl}/first_level_dir/.second_level_hidden_file`
-      `touch #{dir_to_dl}/first_level_dir/second_level_real_file`
-      `touch #{dir_to_dl}/.first_level_hidden_dir/.another_second_level_hidden_file`
-      `touch #{dir_to_dl}/.first_level_hidden_dir/another_second_level_real_file`
+      `echo 'abc123' > #{dir_to_dl}/real_file`
+      `echo 'abc123' > #{dir_to_dl}/first_level_dir/.second_level_hidden_file`
+      `echo 'abc123' > #{dir_to_dl}/first_level_dir/second_level_real_file`
+      `echo 'abc123' > #{dir_to_dl}/.first_level_hidden_dir/.another_second_level_hidden_file`
+      `echo 'abc123' > #{dir_to_dl}/.first_level_hidden_dir/another_second_level_real_file`
 
       visit files_url(dir)
       find('tbody a', exact_text: 'test_dir').ancestor('tr').click
@@ -530,14 +533,13 @@ class FilesTest < ApplicationSystemTestCase
         Dir.glob("#{dir_to_dl}/**/*", File::FNM_DOTMATCH).reject do |file_to_dl|
           ['.', '..'].freeze.include?(File.basename(file_to_dl))
 
-        # get the relative path
+          # get the relative path
         end.map do |path_to_dl|
           path_to_dl.gsub(dir_to_dl, '').delete_prefix('/')
 
-        # now combine the relative path with the new unzipped directory and verify that
-        # the file exists in the unzipped directory
+          # now combine the relative path with the new unzipped directory and verify that
+          # the file exists in the unzipped directory
         end.each do |relative_path_to_dl|
-
           assert(File.exist?("#{unzip_tmp_dir}/#{relative_path_to_dl}"), "#{relative_path_to_dl} was not downloaded!")
         end
       end
@@ -585,8 +587,8 @@ class FilesTest < ApplicationSystemTestCase
   test 'favorite paths outside allowlist do not show up' do
     Dir.mktmpdir do |dir|
       allowed_dir = "#{dir}/allowed_dir"
-      not_allowed_dir    = "#{dir}/not_allowed_dir"
-      with_modified_env( { OOD_ALLOWLIST_PATH: allowed_dir } ) do
+      not_allowed_dir = "#{dir}/not_allowed_dir"
+      with_modified_env({ OOD_ALLOWLIST_PATH: allowed_dir }) do
         `mkdir -p #{allowed_dir}`
         `touch #{allowed_dir}/test_file.txt`
         `mkdir -p #{not_allowed_dir}`
@@ -635,8 +637,8 @@ class FilesTest < ApplicationSystemTestCase
       cant_read_row.find('button.dropdown-toggle').click
       cant_read_links = cant_read_row.all('td > div.btn-group > ul > li > a').map(&:text)
 
-      # NOTE: download is not an expected link.
-      expected_links = ['View', 'Edit', 'Rename', 'Delete']
+      # NOTE: download and view are not an expected links.
+      expected_links = ['Edit', 'Rename', 'Delete']
 
       assert_equal(expected_links, fifo_links)
       assert_equal(expected_links, cant_read_links)
@@ -650,10 +652,81 @@ class FilesTest < ApplicationSystemTestCase
     null_row.find('button.dropdown-toggle').click
     null_links = null_row.all('td > div.btn-group > ul > li > a').map(&:text)
 
-    # NOTE: download is not an expected link.
-    expected_links = ['View', 'Edit', 'Rename', 'Delete']
+    # NOTE: download and view are not an expected links.
+    expected_links = ['Edit', 'Rename', 'Delete']
 
     assert_equal(expected_links, null_links)
+  end
+
+  test 'download button is disabled when non-downloadable item is checked' do
+    Dir.mktmpdir do |dir|
+      cant_read = 'cant_read.txt'
+      can_read = 'can_read.txt'
+
+      `touch #{dir}/#{can_read}`
+      `touch #{dir}/#{cant_read}`
+      `chmod 000 #{dir}/#{cant_read}`
+
+      visit files_url(dir)
+
+      can_read_row = find('tbody a', exact_text: can_read).ancestor('tr')
+      cant_read_row = find('tbody a', exact_text: cant_read).ancestor('tr')
+
+      can_read_row.find('input[type="checkbox"]').check
+
+      refute find('#download-btn').disabled?
+
+      cant_read_row.find('input[type="checkbox"]').check
+
+      assert find('#download-btn').disabled?
+    end
+  end
+
+  test 'download button is re-enabled when non-downloadable item is unchecked' do
+    Dir.mktmpdir do |dir|
+      cant_read = 'cant_read.txt'
+
+      `touch #{dir}/#{cant_read}`
+      `chmod 000 #{dir}/#{cant_read}`
+
+      visit files_url(dir)
+
+      cant_read_row = find('tbody a', exact_text: cant_read).ancestor('tr')
+      cant_read_row.find('input[type="checkbox"]').check
+      assert find('#download-btn').disabled?
+
+      cant_read_row.find('input[type="checkbox"]').uncheck
+      refute find('#download-btn').disabled?
+    end
+  end
+
+  test 'download button is NOT re-enabled until ALL non-downloadable files are unchecked' do
+    Dir.mktmpdir do |dir|
+      cant_read1 = 'cant_read1.txt'
+      cant_read2 = 'cant_read2.txt'
+
+      `touch #{dir}/#{cant_read1}`
+      `touch #{dir}/#{cant_read2}`
+      `chmod 000 #{dir}/#{cant_read1}`
+      `chmod 000 #{dir}/#{cant_read2}`
+
+      visit files_url(dir)
+
+      cant_read1_row = find('tbody a', exact_text: cant_read1).ancestor('tr')
+      cant_read2_row = find('tbody a', exact_text: cant_read2).ancestor('tr')
+
+      cant_read1_row.find('input[type="checkbox"]').check
+      assert find('#download-btn').disabled?
+
+      cant_read2_row.find('input[type="checkbox"]').check
+      assert find('#download-btn').disabled?
+
+      cant_read1_row.find('input[type="checkbox"]').uncheck
+      assert find('#download-btn').disabled?
+
+      cant_read2_row.find('input[type="checkbox"]').uncheck
+      refute find('#download-btn').disabled?
+    end
   end
 
   test 'allowlist errors flash' do
@@ -664,8 +737,8 @@ class FilesTest < ApplicationSystemTestCase
       assert(alerts.empty?)
 
       find('#goto-btn').click
-      find('#swal2-input').set('/etc')
-      find('.swal2-confirm').click
+      find('#files_input_modal_input').set('/etc')
+      find('#files_input_modal_ok_button').click
 
       alerts = all('.alert')
       refute(alerts.empty?)
@@ -673,6 +746,99 @@ class FilesTest < ApplicationSystemTestCase
 
       alert_text = find('.alert > span').text
       assert_equal('/etc does not have an ancestor directory specified in ALLOWLIST_PATH', alert_text)
+    end
+  end
+
+  test 'files have hrefs when download is enabled' do
+    visit(files_url(Rails.root))
+    find('#show-dotfiles').click
+    files = Dir.children(Rails.root).reject { |f| Pathname.new(f).directory? }
+
+    file_elements = find_all('[data-type="f"]')
+
+    # all files are shown in the table.
+    assert_equal(files.size, file_elements.size)
+
+    # all the HTML elements have hrefs.
+    assert(file_elements.all? { |e| !e[:href].nil? })
+  end
+
+  test 'files do not have hrefs when download is enabled' do
+    with_modified_env({ OOD_DOWNLOAD_ENABLED: 'false' }) do
+      visit(files_url(Rails.root))
+      find('#show-dotfiles').click
+      files = Dir.children(Rails.root).reject { |f| Pathname.new(f).directory? }
+
+      file_elements = find_all('[data-type="f"]')
+
+      # all files are shown in the table.
+      assert_equal(files.size, file_elements.size)
+
+      # none of the HTML elements have hrefs.
+      assert(file_elements.all? { |e| e[:href].nil? })
+    end
+  end
+
+  test 'filenames are correctly escaped' do
+    bad_fname = '<img src=1 onerror=alert(\"hello\")>'
+    `touch "tmp/#{bad_fname}"`
+    visit(files_url("#{Rails.root}/tmp"))
+
+    # innerHTML returns escaped text, i.e., '&lt;' not '<'.
+    actual_text = find('tbody a', text: 'onerror')[:innerHTML]
+
+    assert_equal('&lt;img src=1 onerror=alert("hello")&gt;', actual_text)
+  end
+
+  test 'will not render HTML files by default' do
+    data = <<-HEREDOC
+    <html>
+      <body><h1>hello world</h1></body>
+      <script>window.alert('hello world');</script>
+    </html>
+    HEREDOC
+
+    src_file = "#{Rails.root}/tmp/file.html"
+    FileUtils.rm(src_file) if File.exist?(src_file)
+    File.write(src_file, data)
+
+    visit(files_url("#{Rails.root}/tmp"))
+
+    find('tbody a', exact_text: 'file.html').click
+    assert_equal(current_path, files_path("#{Rails.root}/tmp/file.html"))
+
+    # there's no need to confirm the javascript window.alert, because it's
+    # not rendered as HTML, only test. There is no <h1> or <script> elements
+    assert_no_selector('h1')
+    assert_no_selector('script')
+    assert_equal(data.chomp, find('pre').text.chomp)
+  end
+
+  test 'will render HTML when configured to do so' do
+    with_modified_env({ OOD_UNSAFE_RENDER_HTML: 'true' }) do
+      data = <<-HEREDOC
+      <html>
+        <body><h1>hello world</h1></body>
+        <script>window.alert('hello world');</script>
+      </html>
+      HEREDOC
+
+      src_file = "#{Rails.root}/tmp/file.html"
+      FileUtils.rm(src_file) if File.exist?(src_file)
+      File.write(src_file, data)
+
+      dest_file = DOWNLOAD_DIRECTORY.join('file.html')
+      FileUtils.rm(dest_file) if File.exist?(dest_file)
+
+      visit(files_url("#{Rails.root}/tmp"))
+
+      # note that there's no accept_alert block in the previous test.
+      accept_alert 'hello world' do
+        find('tbody a', exact_text: 'file.html').click
+      end
+
+      assert_equal(current_path, files_path("#{Rails.root}/tmp/file.html"))
+      assert_equal('hello world', find('h1').text)
     end
   end
 end

@@ -4,9 +4,15 @@ require 'authz/app_developer_constraint'
 
 Rails.application.routes.draw do
   if Configuration.can_access_projects?
+    get 'projects/import' => 'projects#import', :as => 'project_import'
+    post 'projects/import' => 'projects#import_save', :as => 'project_import_save'
+
     resources :projects do
       root 'projects#index'
       get '/jobs/:cluster/:jobid' => 'projects#job_details', :defaults => { :format => 'turbo_stream' }, :as => 'job_details'
+      delete '/jobs/:cluster/:jobid' => 'projects#delete_job', :as => 'delete_job'
+      post '/jobs/:cluster/:jobid/stop' => 'projects#stop_job', :as => 'stop_job'
+      post '/zip_to_template' => 'projects#zip_to_template', :as => 'zip_to_template'
 
       resources :launchers do
         post 'submit', on: :member
@@ -34,7 +40,8 @@ Rails.application.routes.draw do
 
     get 'files', to: redirect("files/fs#{Dir.home}")
     get 'files/fs', to: redirect("files/fs#{Dir.home}")
-
+    get 'frames/directory_frame' => 'files#directory_frame', as: 'directory_frame'
+    
     resources :transfers, only: [:show, :create, :destroy]
   end
 
@@ -66,8 +73,8 @@ Rails.application.routes.draw do
   # analytics request appears in the access logs and google analytics
   get 'analytics/:type' => proc { [204, {}, ['']] }, :as => 'analytics'
 
-  get 'apps/show/:name(/:type(/:owner))' => 'apps#show', :as => 'app', :defaults => { type: 'sys' }
-  get 'apps/icon/:name(/:type(/:owner))' => 'apps#icon', :as => 'app_icon', :defaults => { type: 'sys' }
+  get 'apps/show/:name(/:type(/:owner))' => 'apps#show', :as => 'app', :defaults => { type: 'sys' }, :constraints => { owner: %r{[^/]+} }
+  get 'apps/icon/:name(/:type(/:owner))' => 'apps#icon', :as => 'app_icon', :defaults => { type: 'sys' }, :constraints => { owner: %r{[^/]+} }
   get 'apps/index' => 'apps#index'
 
   get 'apps/restart' => 'apps#restart' if Configuration.app_sharing_enabled?
@@ -104,6 +111,13 @@ Rails.application.routes.draw do
 
   post 'settings', :to => 'settings#update'
 
+  # Experimental Feature
+  # Allows widget partials to be rendered without any page furniture.
+  # It can be use to extend OOD functionality.
+  if Configuration.widget_partials_enabled?
+    match '/widgets/*widget_path', to: 'widgets#show', via: [:get, :post], as: 'widgets'
+  end
+
   # Support ticket routes
   if Configuration.support_ticket_enabled?
     get '/support', to: 'support_ticket#new'
@@ -115,6 +129,8 @@ Rails.application.routes.draw do
 
   match '/404', :to => 'errors#not_found', :via => :all
   match '/500', :to => 'errors#internal_server_error', :via => :all
+
+  get 'module_browser' => 'module_browser#index', :as => 'module_browser'
 
   # The priority is based upon order of creation: first created -> highest priority.
   # See how all your routes lay out with "rake routes".

@@ -109,8 +109,35 @@ module ActiveSupport
         .returns(['2097152 /directory/path', '', exit_success])
     end
 
+    def stub_sinfo
+      ['oakley', 'owens'].each do |cluster|
+        Open3
+          .stubs(:capture3)
+          .with({}, 'sinfo', '-ho', "\u001E%c\u001F%n\u001F%f", '-M', cluster, stdin_data: '')
+          .returns([File.read("test/fixtures/cmd_output/sinfo_nodes_#{cluster}.txt"), '', exit_success])
+      end
+    end
+
+    # helper to stub clusters to be [ascend] becuase adding new cluster.d
+    # files may conflict with existing tests.
+    def stub_ascend
+      ascend = OodCore::Cluster.new({ id: 'ascend', job: { adapter: 'slurm' } })
+      OodAppkit.stubs(:clusters).returns(OodCore::Clusters.new([ascend]))
+    end
+
     def output_fixture(file)
       File.read("#{Rails.root}/test/fixtures/file_output/#{file}")
+    end
+
+    def sys_bc_app(app: 'bc_paraview')
+      r = SysRouter.new(app)
+      BatchConnect::App.new(router: r)
+    end
+
+    def stub_git(dir)
+      Open3.stubs(:capture3)
+        .with('git', 'describe', '--always', '--tags', chdir: dir)
+        .returns(['1.2.3', '', exit_success])
     end
   end
 end

@@ -54,6 +54,11 @@ export function isBCDynamicJSEnabled() {
   return cfgData['bcDynamicJs'] == 'true'
 }
 
+export function downloadEnabled() {
+  const cfgData = configData();
+  return cfgData['downloadEnabled'] == 'true';
+}
+
 /*
   Will return null if xdmod integration is not enabled.
 */
@@ -87,6 +92,13 @@ export function statusPollDelay() {
 export function statusIndexUrl() {
   const cfgData = configData();
   return cfgData['statusIndexUrl'];
+}
+
+export function supportPath() {
+  const cfgData = configData();
+  const supportPath = cfgData['supportPath'];
+
+  return supportPath;
 }
 
 export function appsDatatablePageLength() {

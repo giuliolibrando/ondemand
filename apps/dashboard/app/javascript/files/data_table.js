@@ -1,6 +1,6 @@
-import Handlebars from 'handlebars';
 import {EVENTNAME as SWAL_EVENTNAME} from './sweet_alert.js';
 import { getGlobusLink, updateGlobusLink } from './globus.js';
+import { downloadEnabled } from '../config.js';
 export { CONTENTID, EVENTNAME };
 
 const EVENTNAME = {
@@ -10,6 +10,7 @@ const EVENTNAME = {
 };
 
 const CONTENTID = '#directory-contents';
+const SPINNERID = '#tloading_spinner';
 
 let table = null;
 
@@ -61,7 +62,7 @@ jQuery(function () {
 
     $('#select_all').on('click', function() {
         if ($(this).is(":checked")) {
-            table.getTable().rows().select();
+            table.getTable().rows({ search: 'applied' }).select();
         } else {
             table.getTable().rows().deselect();
         }
@@ -221,9 +222,12 @@ class DataTable {
                     data: null,
                     orderable: false,
                     defaultContent: '<input type="checkbox">',
+                    render: (data, type, row, meta) => {
+                        return `<input type='checkbox' data-dl-url='${row.download_url}'>`;
+                    }
                 },
                 { data: 'type', render: (data, type, row, meta) => data == 'd' ? '<span title="directory" class="fa fa-folder" style="color: gold"><span class="sr-only"> dir</span></span>' : '<span title="file" class="fa fa-file" style="color: lightgrey"><span class="sr-only"> file</span></span>' }, // type
-                { name: 'name', data: 'name', className: 'text-break', render: (data, type, row, meta) => `<a class="${row.type} name ${row.type == 'd' ? '' : 'view-file'}" href="${row.url}">${Handlebars.escapeExpression(data)}</a>` }, // name
+                { name: 'name', data: 'name', className: 'text-break', render: (data, type, row, meta) => this.renderNameColumn(data, type, row, meta) }, // name
                 { name: 'actions', orderable: false, searchable: false, data: null, render: (data, type, row, meta) => this.actionsBtnTemplate({ row_index: meta.row, file: row.type != 'd', data: row }) },
                 {
                     data: 'size',
@@ -269,6 +273,8 @@ class DataTable {
     async reloadTable(url) {
         var request_url = url || history.state.currentDirectoryUrl;
 
+        this.toggleSpinner();
+
         try {
             const response = await fetch(request_url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
             const data = await this.dataFromJsonResponse(response);
@@ -297,7 +303,10 @@ class DataTable {
                         table.getTable().row(this.closest('tr')).deselect();
                     }
                 }
-            })
+            });
+
+            this.toggleSpinner();
+
             return result;
         } catch (e) {
             const eventData = {
@@ -308,10 +317,17 @@ class DataTable {
             $(CONTENTID).trigger(SWAL_EVENTNAME.showError, eventData);
 
             $('#open-in-terminal-btn').addClass('disabled');
+
+            this.toggleSpinner()
             
             // Removed this as it was causing a JS Error and there is no reprocution from removing it.
             // return await Promise.reject(e);
         }
+    }
+
+    toggleSpinner() {
+        document.querySelector(SPINNERID).classList.toggle('d-none');
+        document.querySelector(CONTENTID).classList.toggle('d-none');
     }
 
     updateDotFileVisibility() {
@@ -360,11 +376,125 @@ class DataTable {
         });
     }
 
+    renderNameColumn(data, type, row, meta) {
+        let element = undefined;
+
+        if(row.type == 'f' && !downloadEnabled()) {
+            element = document.createElement('span');
+        } else {
+            element = document.createElement('a');
+            element.href = row.url;
+        }
+
+        // dataset.type is only used in testing.
+        element.dataset.type = row.type;
+        element.classList.add('name');
+        element.textContent = data;
+
+        return element.outerHTML;
+    }
+
     actionsBtnTemplate(options) {
-        let template_str = $('#actions-btn-template').html();
-        let compiled = Handlebars.compile(template_str);
-        let results = compiled(options);
-        return results;
+        // options: { row_index: meta.row,
+        //            file: row.type != 'd',
+        //            data: row }
+        const rowIndex = options.row_index;
+        const file = options.file;
+        const data = options.data;
+        
+        // Create the button group container
+        const btnGroup = document.createElement('div');
+        btnGroup.classList.add('btn-group', 'actions-btn-group');
+          
+        // Create the button
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.classList.add('actions-btn', 'btn', 'btn-outline-dark', 'btn-sm', 'dropdown-toggle');
+        button.setAttribute('data-bs-toggle', 'dropdown');
+        button.setAttribute('aria-haspopup', 'true');
+        button.setAttribute('aria-expanded', 'false');
+          
+        // Create the icon inside the button
+        const icon = document.createElement('span');
+        icon.classList.add('fa', 'fa-ellipsis-v');
+        button.appendChild(icon);
+          
+        // Append the button to the button group
+        btnGroup.appendChild(button);
+          
+        // Create the dropdown menu
+        const dropdownMenu = document.createElement('ul');
+        dropdownMenu.classList.add('dropdown-menu');
+          
+        // Check if this is a file and create View and Edit options
+        if (file) {
+            if (data.url && downloadEnabled()) {
+                const viewItem = document.createElement('li');
+                const viewLink = document.createElement('a');
+                viewLink.href = data.url;
+                viewLink.classList.add('view-file', 'dropdown-item');
+                viewLink.target = '_blank';
+                viewLink.setAttribute('data-row-index', rowIndex);
+                viewLink.innerHTML = '<i class="fas fa-eye" aria-hidden="true"></i> View';
+                viewItem.appendChild(viewLink);
+                dropdownMenu.appendChild(viewItem);
+            }
+          
+            if (data.edit_url) {
+                const editItem = document.createElement('li');
+                const editLink = document.createElement('a');
+                editLink.href = data.edit_url;
+                editLink.classList.add('edit-file', 'dropdown-item');
+                editLink.target = '_blank';
+                editLink.setAttribute('data-row-index', rowIndex);
+                editLink.innerHTML = '<i class="fas fa-edit" aria-hidden="true"></i> Edit';
+                editItem.appendChild(editLink);
+                dropdownMenu.appendChild(editItem);
+            }
+        }
+          
+        // Create Rename option
+        const renameItem = document.createElement('li');
+        const renameLink = document.createElement('a');
+        renameLink.href = '#';
+        renameLink.classList.add('rename-file', 'dropdown-item');
+        renameLink.setAttribute('data-row-index', rowIndex);
+        renameLink.innerHTML = '<i class="fas fa-font" aria-hidden="true"></i> Rename';
+        renameItem.appendChild(renameLink);
+        dropdownMenu.appendChild(renameItem);
+          
+        // Create Download option if it's enabled and the URL exists
+        if (downloadEnabled() && data.download_url) {
+            const downloadItem = document.createElement('li');
+            const downloadLink = document.createElement('a');
+            downloadLink.href = data.download_url;
+            downloadLink.classList.add('download-file', 'dropdown-item');
+            downloadLink.setAttribute('data-row-index', rowIndex);
+            downloadLink.innerHTML = '<i class="fas fa-download" aria-hidden="true"></i> Download';
+            downloadItem.appendChild(downloadLink);
+            dropdownMenu.appendChild(downloadItem);
+        }
+          
+        // Add a divider between options
+        const dividerItem = document.createElement('li');
+        dividerItem.classList.add('dropdown-divider', 'mt-4');
+        dropdownMenu.appendChild(dividerItem);
+          
+        // Create the Delete option
+        const deleteItem = document.createElement('li');
+        const deleteLink = document.createElement('a');
+        deleteLink.href = '#';
+        deleteLink.classList.add('delete-file', 'dropdown-item', 'text-danger');
+        deleteLink.setAttribute('data-row-index', rowIndex);
+        deleteLink.innerHTML = '<i class="fas fa-trash" aria-hidden="true"></i> Delete';
+        deleteItem.appendChild(deleteLink);
+        dropdownMenu.appendChild(deleteItem);
+          
+        // Append the dropdown menu to the button group
+        btnGroup.appendChild(dropdownMenu);
+          
+        // Return the button group element html as a string
+        return btnGroup.outerHTML;          
     }
 
     updateDatatablesStatus() {

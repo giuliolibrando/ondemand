@@ -145,13 +145,27 @@ class OodApp
         OodAppLink.new(
           title: title,
           description: manifest.description,
-          url: (type == :sys && owner == :sys) ? app_path(name, nil, nil) : app_path(name, type, owner),
+          url: possibly_external_url,
           icon_uri: icon_uri,
           caption: caption,
           new_tab: open_in_new_window?,
           tile: tile
         )
       ]
+    end
+  end
+
+  # if the URL of the app is external, it's not a real app, just a hack to
+  # make an external link. In this case, we don't want the href to be
+  # 'app_path' (i.e., /pun/sys/dashboard/apps/show/<appname>), but instead
+  # be the actual external URL. This avoids an external host error in Rails,
+  # but also provides the user to know the _actual_ URL before clicking it.
+  def possibly_external_url
+    parsed_url = Addressable::URI.parse(url)
+    if parsed_url.relative?
+      (type == :sys && owner == :sys) ? app_path(name, nil, nil) : app_path(name, type, owner)
+    else
+      url
     end
   end
 
@@ -168,10 +182,6 @@ class OodApp
 
   def batch_connect_app?
     role == "batch_connect"
-  end
-
-  def batch_connect
-    @batch_connect ||= BatchConnect::App.new(router: router)
   end
 
   def has_gemfile?
@@ -332,18 +342,12 @@ class OodApp
   end
 
   def sub_app_list
-    batch_connect_app? ? batch_connect.sub_app_list : []
+    []
   end
 
-  # The subapp list may only be of size 1 and actually contains
-  # this app. This returns true if there are indeed sub apps that
-  # that differ from this object.
+  # OodApps do not have sub_apps, but a child like BatchConnect::App could.
   def has_sub_apps?
-    if batch_connect_app?
-      sub_app_list.size > 1 || sub_app_list[0] != batch_connect
-    else
-      false
-    end
+    false
   end
 
   def tile

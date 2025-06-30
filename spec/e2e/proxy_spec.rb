@@ -26,7 +26,9 @@ describe 'Node and Rnode proxies' do
   end
 
   it 'rnode proxies directly to the origin' do
+    sleep 10
     browser.goto "#{ctr_base_url}/rnode/localhost/5000/simple-page"
+    sleep 10
     expect(browser.url).to eq("#{ctr_base_url}/rnode/localhost/5000/simple-page")
     expect(browser.div(id: 'test-div').present?).to be true
   end
@@ -98,6 +100,20 @@ describe 'Node and Rnode proxies' do
 
     browser.goto "#{ctr_base_url}/node/localhost/5001/one/relative-redirect"
     expect(browser.url).to eq("#{ctr_base_url}/node/localhost/5001/one/one-level-down")
+    expect(browser.div(id: 'test-div').present?).to be true
+  end
+
+  it 'correctly passes query parameters to node URIs' do
+    url = "#{ctr_base_url}/node/localhost/5001/one/with-query-params?artist=the%20beatles&album=let%20it%20be"
+    browser.goto(url)
+    expect(browser.url).to eq(url)
+    expect(browser.div(id: 'test-div').present?).to be true
+  end
+
+  it 'correctly passes query parameters to rnode URIs' do
+    url = "#{ctr_base_url}/rnode/localhost/5000/one/with-query-params?artist=the%20beatles&album=let%20it%20be"
+    browser.goto(url)
+    expect(browser.url).to eq(url)
     expect(browser.div(id: 'test-div').present?).to be true
   end
 

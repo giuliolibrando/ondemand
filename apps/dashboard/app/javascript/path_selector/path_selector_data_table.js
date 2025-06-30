@@ -1,3 +1,5 @@
+import { OODAlert } from '../alert';
+import { hide, show } from "../utils";
 
 export class PathSelectorTable {
   _table = null;
@@ -12,6 +14,7 @@ export class PathSelectorTable {
   modalId             = undefined;
   showHidden          = undefined;
   showFiles           = undefined;
+  filePattern         = undefined;
 
   constructor(options) {
       this.tableId             = options.tableId;
@@ -23,6 +26,7 @@ export class PathSelectorTable {
       this.modalId             = options.modalId;
       this.showHidden          = options.showHidden === 'true';
       this.showFiles           = options.showFiles === 'true';
+      this.filePattern         = options.filePattern;
 
       this.initDataTable();
       this.reloadTable(this.initialUrl());
@@ -68,7 +72,9 @@ export class PathSelectorTable {
             data: 'name',
             className: 'text-break',
             render: (data, _type, _row, _meta) => {
-                return `<span>${data}</span>`;
+                const ele = document.createElement('span');
+                ele.textContent = data;
+                return ele.outerHTML;
             }
 
         }
@@ -84,7 +90,7 @@ export class PathSelectorTable {
   async reloadTable(url) {
     try {
       $(this.tableWrapper()).hide();
-      $('#loading-icon').show();
+      show(`${this.tableId}_spinner`);
       const response = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
       const data = await this.dataFromJsonResponse(response);
       $(`#${this.breadcrumbId}`).html(data.path_selector_breadcrumbs_html);
@@ -104,7 +110,7 @@ export class PathSelectorTable {
   }
 
   resetTable() {
-    $('#loading-icon').hide();
+    hide(`${this.tableId}_spinner`);
     $(this.tableWrapper()).show();
     $('#forbidden-warning').addClass('d-none');
   }
@@ -180,7 +186,7 @@ export class PathSelectorTable {
   }
 
   setLastVisited(path, pathType = 'd') {
-    const item = { path: path, type: pathType };
+    const item = { path: decodeURI(path), type: pathType };
     if(path) {
       localStorage.setItem(this.storageKey(), JSON.stringify(item));
     }
@@ -207,6 +213,16 @@ export class PathSelectorTable {
 
   // filter the response from the files API to remove things like hidden files/directories
   filterFileResponse(data) {
+    let regex = undefined
+
+    try {
+      if (this.filePattern !== undefined) {
+        regex = RegExp(this.filePattern);
+      }
+    } catch {
+      OODAlert("The regular expression provided for this path selector did not compile");
+    }
+
     const filteredFiles = data.files.filter((file) => {
       const isHidden = file.name.startsWith('.');
       const isFile = file.type == "f";
@@ -216,7 +232,7 @@ export class PathSelectorTable {
       } else if(isHidden) {
         return this.showHidden;
       } else if(isFile) {
-        return this.showFiles;
+        return this.filteredByFilename(file, regex);
       } else {
         return true;
       }
@@ -224,5 +240,18 @@ export class PathSelectorTable {
 
     data.files = filteredFiles;
     return data;
+  }
+
+  filteredByFilename(file, regex) {
+    if (regex !== undefined) {
+      if (file.name.match(regex)) {
+        return this.showFiles;
+      } else {
+        return false;
+      }
+    }
+    else {
+      return this.showFiles;
+    }
   }
 }
